@@ -18,9 +18,7 @@
 
         <div class="nav-group">
           <div class="nav-level1">目录管理</div>
-          <a class="nav-level2 active" href="#page-category-create" data-page="page-category-create">新增目录</a>
-          <a class="nav-level2" href="#page-category-manage" data-page="page-category-manage">目录操作</a>
-          <a class="nav-level2" href="#page-category-tree" data-page="page-category-tree">目录树</a>
+          <a class="nav-level2 active" href="#page-category-manage" data-page="page-category-manage">目录操作</a>
         </div>
 
         <div class="nav-group">
@@ -40,38 +38,56 @@
       </aside>
 
       <section class="content-column">
-        <section class="card content-page active" id="page-category-create">
-          <h2>新增目录</h2>
-          <div class="row">
-            <label for="newCategoryName">名称</label>
-            <input id="newCategoryName" type="text" placeholder="目录名称" />
-          </div>
-          <div class="row">
-            <label for="newCategoryParent">父级</label>
-            <select id="newCategoryParent"></select>
-          </div>
-          <button id="createCategoryBtn">新增目录</button>
-        </section>
-
-        <section class="card content-page" id="page-category-manage">
+        <section class="card content-page active" id="page-category-manage">
           <h2>目录操作</h2>
-          <div class="row">
-            <label for="manageCategoryId">目录</label>
-            <select id="manageCategoryId"></select>
-          </div>
-          <div class="row">
-            <label for="renameCategoryName">新名称</label>
-            <input id="renameCategoryName" type="text" placeholder="新目录名" />
-          </div>
-          <div class="button-row">
-            <button id="renameCategoryBtn">重命名</button>
-            <button id="deleteCategoryBtn" class="danger">删除</button>
-          </div>
-        </section>
 
-        <section class="card content-page" id="page-category-tree">
-          <h2>目录树</h2>
-          <ul id="categoryTree" class="tree"></ul>
+          <div class="category-layout">
+            <div class="category-action-zone">
+              <div class="row">
+                <label for="manageCategoryId">当前目录</label>
+                <select id="manageCategoryId"></select>
+              </div>
+              <div id="categorySelectedHint" class="hint">未选择目录。可直接新增一级目录。</div>
+
+              <div class="action-tabs" id="categoryActionTabs">
+                <button type="button" class="action-tab active" data-category-action="add">新增</button>
+                <button type="button" class="action-tab" data-category-action="rename">修改</button>
+                <button type="button" class="action-tab danger" data-category-action="delete">删除</button>
+              </div>
+
+              <section class="action-panel active" data-category-panel="add">
+                <div class="row">
+                  <label for="newCategoryName">名称</label>
+                  <input id="newCategoryName" type="text" placeholder="目录名称" />
+                </div>
+                <div class="row">
+                  <label for="newCategoryParent">父级</label>
+                  <select id="newCategoryParent"></select>
+                </div>
+                <button id="createCategoryBtn">新增目录</button>
+              </section>
+
+              <section class="action-panel" data-category-panel="rename">
+                <div class="row">
+                  <label for="renameCategoryName">新名称</label>
+                  <input id="renameCategoryName" type="text" placeholder="新目录名" />
+                </div>
+                <button id="renameCategoryBtn">重命名</button>
+              </section>
+
+              <section class="action-panel" data-category-panel="delete">
+                <div class="hint">仅空目录可删除（无子目录、无产品）。</div>
+                <div class="mt12">
+                  <button id="deleteCategoryBtn" class="danger">删除目录</button>
+                </div>
+              </section>
+            </div>
+
+            <div class="category-tree-zone">
+              <h3>目录树</h3>
+              <ul id="categoryTree" class="tree"></ul>
+            </div>
+          </div>
         </section>
 
         <section class="card content-page" id="page-product-list">

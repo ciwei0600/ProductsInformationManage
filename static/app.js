@@ -5,6 +5,7 @@ const state = {
   pageSize: 20,
   total: 0,
   selectedTreeCategoryId: null,
+  categoryAction: "add",
   materialProducts: [],
   quoteLines: [],
 };
@@ -108,7 +109,7 @@ function initSideNavigation() {
   links.forEach((link) => {
     link.addEventListener("click", (event) => {
       event.preventDefault();
-      setActivePage(link.dataset.page || links[0].dataset.page || "page-category-create");
+      setActivePage(link.dataset.page || links[0].dataset.page || "page-category-manage");
     });
   });
 
@@ -119,7 +120,7 @@ function initSideNavigation() {
       setActivePage(hash, false);
       return;
     }
-    setActivePage(links[0].dataset.page || "page-category-create", false);
+    setActivePage(links[0].dataset.page || "page-category-manage", false);
   };
 
   window.addEventListener("hashchange", applyByHash);
@@ -174,6 +175,39 @@ function fillCategorySelect(selectId, includeAll = false) {
   }
 }
 
+function setCategoryAction(action) {
+  const allowRenameDelete = Boolean(el("manageCategoryId").value);
+  const finalAction = !allowRenameDelete && action !== "add" ? "add" : action;
+  state.categoryAction = finalAction;
+
+  document.querySelectorAll("[data-category-action]").forEach((button) => {
+    const active = button.dataset.categoryAction === finalAction;
+    button.classList.toggle("active", active);
+  });
+  document.querySelectorAll("[data-category-panel]").forEach((panel) => {
+    const active = panel.dataset.categoryPanel === finalAction;
+    panel.classList.toggle("active", active);
+  });
+}
+
+function updateCategorySelectionHint() {
+  const selectedId = Number(el("manageCategoryId").value);
+  const pathMap = categoryPathMap();
+  const path = selectedId ? pathMap.get(selectedId) || `目录 #${selectedId}` : "";
+  const hint = selectedId
+    ? `已选择目录：${path}。可在上方切换新增/修改/删除功能。`
+    : "未选择目录。可直接新增一级目录。";
+  setText("categorySelectedHint", hint);
+
+  document.querySelectorAll("[data-category-action='rename'], [data-category-action='delete']").forEach((button) => {
+    button.disabled = !selectedId;
+  });
+
+  if (!selectedId && state.categoryAction !== "add") {
+    setCategoryAction("add");
+  }
+}
+
 function renderCategoryTree() {
   const container = el("categoryTree");
 
@@ -196,13 +230,13 @@ function renderCategoryTree() {
   container.innerHTML = renderNodes(state.categoryTree);
 
   container.querySelectorAll(".tree-item").forEach((item) => {
-    item.addEventListener("click", async () => {
+    item.addEventListener("click", () => {
       const id = Number(item.dataset.id);
       state.selectedTreeCategoryId = id;
-      el("filterCategory").value = String(id);
-      state.page = 1;
+      el("manageCategoryId").value = String(id);
+      el("newCategoryParent").value = String(id);
+      updateCategorySelectionHint();
       renderCategoryTree();
-      await loadProducts();
     });
   });
 }
@@ -354,6 +388,17 @@ async function loadCategories() {
   fillCategorySelect("filterCategory", true);
   fillCategorySelect("productCategory");
   fillCategorySelect("materialPackageCategory", true);
+
+  if (el("newCategoryParent").options.length > 0) {
+    el("newCategoryParent").options[0].textContent = "一级目录";
+  }
+  if (el("manageCategoryId").options.length > 0) {
+    el("manageCategoryId").options[0].textContent = "请选择目录";
+  }
+
+  const selectedId = Number(el("manageCategoryId").value);
+  state.selectedTreeCategoryId = selectedId || null;
+  updateCategorySelectionHint();
 
   renderCategoryTree();
 }
@@ -624,7 +669,7 @@ async function loadProductDetail(id) {
 async function createCategory() {
   const name = el("newCategoryName").value.trim();
   const parentId = el("newCategoryParent").value;
-  await request("/api/categories", {
+  const created = await request("/api/categories", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -635,6 +680,15 @@ async function createCategory() {
   el("newCategoryName").value = "";
   toast("目录已新增");
   await Promise.all([loadCategories(), loadProducts(), loadStats()]);
+
+  if (created && created.id) {
+    const idText = String(created.id);
+    el("manageCategoryId").value = idText;
+    el("newCategoryParent").value = idText;
+    state.selectedTreeCategoryId = created.id;
+    updateCategorySelectionHint();
+    renderCategoryTree();
+  }
 }
 
 async function renameCategory() {
@@ -651,6 +705,7 @@ async function renameCategory() {
   el("renameCategoryName").value = "";
   toast("目录已重命名");
   await Promise.all([loadCategories(), loadProducts(), loadMaterialProducts()]);
+  updateCategorySelectionHint();
 }
 
 async function deleteCategory() {
@@ -661,6 +716,7 @@ async function deleteCategory() {
   await request(`/api/categories/${categoryId}`, { method: "DELETE" });
   toast("目录已删除");
   await Promise.all([loadCategories(), loadProducts(), loadStats(), loadMaterialProducts()]);
+  updateCategorySelectionHint();
 }
 
 async function saveProduct() {
@@ -732,6 +788,21 @@ function bindEvents() {
   el("deleteCategoryBtn").addEventListener("click", () =>
     deleteCategory().catch((err) => toast(err.message))
   );
+  el("manageCategoryId").addEventListener("change", () => {
+    const selectedValue = el("manageCategoryId").value;
+    state.selectedTreeCategoryId = selectedValue ? Number(selectedValue) : null;
+    if (selectedValue) {
+      el("newCategoryParent").value = selectedValue;
+    }
+    updateCategorySelectionHint();
+    renderCategoryTree();
+  });
+  document.querySelectorAll("[data-category-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.disabled) return;
+      setCategoryAction(button.dataset.categoryAction || "add");
+    });
+  });
 
   el("searchBtn").addEventListener("click", () => {
     state.page = 1;
@@ -746,11 +817,7 @@ function bindEvents() {
   });
 
   el("filterCategory").addEventListener("change", () => {
-    state.selectedTreeCategoryId = el("filterCategory").value
-      ? Number(el("filterCategory").value)
-      : null;
     state.page = 1;
-    renderCategoryTree();
     loadProducts().catch((err) => toast(err.message));
   });
 
@@ -819,6 +886,8 @@ function bindEvents() {
 
 async function bootstrap() {
   bindEvents();
+  setCategoryAction("add");
+  updateCategorySelectionHint();
   initSideNavigation();
   resetProductForm();
   resetMaterialPanels();
