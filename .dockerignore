@@ -1,0 +1,11 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.db
+data/media
+.git
+.gitignore
+deploy/*.env
+目录图片.zip

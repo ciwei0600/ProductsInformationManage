@@ -1,0 +1,17 @@
+[Unit]
+Description=Products Information Manage GitHub Webhook Listener
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__APP_DIR__/deploy/hook.env
+ExecStart=__APP_DIR__/.venv/bin/python __APP_DIR__/deploy/github_webhook.py
+Restart=always
+RestartSec=3
+User=__APP_USER__
+Group=__APP_GROUP__
+
+[Install]
+WantedBy=multi-user.target

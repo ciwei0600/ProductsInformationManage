@@ -1,0 +1,14 @@
+[Unit]
+Description=Products Information Manage Docker Compose Stack
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=__APP_DIR__
+ExecStart=/usr/bin/docker compose --project-name __COMPOSE_PROJECT_NAME__ --env-file __APP_DIR__/deploy/app.env -f __APP_DIR__/docker-compose.yml up -d --no-deps --build __SERVICE_NAME__
+ExecStop=/usr/bin/docker compose --project-name __COMPOSE_PROJECT_NAME__ --env-file __APP_DIR__/deploy/app.env -f __APP_DIR__/docker-compose.yml down
+
+[Install]
+WantedBy=multi-user.target

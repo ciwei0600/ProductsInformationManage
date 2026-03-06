@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>产品信息管理系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>产品信息管理系统</h1>
+      <div class="stats" id="stats">目录: 0 | 产品: 0 | 图片: 0</div>
+    </header>
+
+    <section class="card import-card">
+      <h2>Zip 导入</h2>
+      <div class="row">
+        <label for="zipPath">Zip 路径</label>
+        <input id="zipPath" type="text" value="{{ default_zip }}" />
+      </div>
+      <div class="row">
+        <label class="checkbox">
+          <input id="importReset" type="checkbox" />
+          清空现有数据后导入
+        </label>
+        <button id="importBtn">导入</button>
+      </div>
+      <div id="importResult" class="hint"></div>
+    </section>
+
+    <main class="layout">
+      <section class="card sidebar">
+        <h2>产品目录管理</h2>
+
+        <div class="group">
+          <h3>新增目录</h3>
+          <div class="row">
+            <label for="newCategoryName">名称</label>
+            <input id="newCategoryName" type="text" placeholder="目录名称" />
+          </div>
+          <div class="row">
+            <label for="newCategoryParent">父级</label>
+            <select id="newCategoryParent"></select>
+          </div>
+          <button id="createCategoryBtn">新增目录</button>
+        </div>
+
+        <div class="group">
+          <h3>目录操作</h3>
+          <div class="row">
+            <label for="manageCategoryId">目录</label>
+            <select id="manageCategoryId"></select>
+          </div>
+          <div class="row">
+            <label for="renameCategoryName">新名称</label>
+            <input id="renameCategoryName" type="text" placeholder="新目录名" />
+          </div>
+          <div class="button-row">
+            <button id="renameCategoryBtn">重命名</button>
+            <button id="deleteCategoryBtn" class="danger">删除</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>目录树</h3>
+          <ul id="categoryTree" class="tree"></ul>
+        </div>
+      </section>
+
+      <section class="card content">
+        <h2>产品管理</h2>
+
+        <div class="group">
+          <h3>筛选</h3>
+          <div class="filter-grid">
+            <input id="searchKeyword" type="text" placeholder="按编号/中文名/作用/描述搜索" />
+            <select id="filterCategory"></select>
+            <button id="searchBtn">查询</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>产品列表</h3>
+          <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>产品编号</th>
+                <th>中文名</th>
+                <th>作用</th>
+                <th>喷洒半径</th>
+                <th>单个重量</th>
+                <th>包装数量</th>
+                <th>包装尺寸</th>
+                <th>总重量</th>
+                <th>目录</th>
+                <th>图片</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="productsBody"></tbody>
+          </table>
+          </div>
+          <div class="pager">
+            <button id="prevPageBtn">上一页</button>
+            <span id="pageInfo">第 1 页</span>
+            <button id="nextPageBtn">下一页</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3 id="productFormTitle">新增产品</h3>
+          <input id="productId" type="hidden" />
+          <div class="row">
+            <label for="productCode">编码</label>
+            <input id="productCode" type="text" placeholder="如 SQ1001A" />
+          </div>
+          <div class="row">
+            <label for="productChineseName">中文名</label>
+            <input id="productChineseName" type="text" placeholder="产品中文名称" />
+          </div>
+          <div class="row">
+            <label for="productCategory">目录</label>
+            <select id="productCategory"></select>
+          </div>
+          <div class="row">
+            <label for="productEffect">作用</label>
+            <textarea id="productEffect" rows="2" placeholder="产品作用"></textarea>
+          </div>
+          <div class="row">
+            <label for="productDescription">描述</label>
+            <textarea id="productDescription" rows="3" placeholder="产品描述"></textarea>
+          </div>
+          <div class="row">
+            <label for="productSprayRadius">喷洒半径</label>
+            <input id="productSprayRadius" type="text" placeholder="可选，如 2m" />
+          </div>
+          <div class="row">
+            <label for="productUnitWeight">单个重量</label>
+            <input id="productUnitWeight" type="text" placeholder="如 120g" />
+          </div>
+          <div class="row">
+            <label for="productPackageQuantity">包装数量</label>
+            <input id="productPackageQuantity" type="text" placeholder="如 100 个/箱" />
+          </div>
+          <div class="row">
+            <label for="productPackageSize">包装尺寸</label>
+            <input id="productPackageSize" type="text" placeholder="如 40x30x20cm" />
+          </div>
+          <div class="row">
+            <label for="productGrossWeight">总重量</label>
+            <input id="productGrossWeight" type="text" placeholder="如 12kg" />
+          </div>
+          <div class="button-row">
+            <button id="saveProductBtn">保存</button>
+            <button id="resetProductBtn">清空</button>
+          </div>
+        </div>
+
+        <div class="group" id="imageGroup">
+          <h3>产品图片</h3>
+          <div class="button-row">
+            <input id="imageFile" type="file" accept="image/*" />
+            <button id="uploadImageBtn">上传图片</button>
+          </div>
+          <div id="imageList" class="image-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
