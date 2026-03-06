@@ -6,6 +6,7 @@ const state = {
   total: 0,
   selectedTreeCategoryId: null,
   selectedTreeProductId: null,
+  selectedProductMainImagePath: null,
   expandedCategoryIds: new Set(),
   categoryAction: "add",
   materialProducts: [],
@@ -394,15 +395,41 @@ function updatePager() {
 
 function renderProductImages(images) {
   const container = el("imageList");
+  const mainImage = el("productMainImage");
+  const mainHint = el("productMainImageHint");
+
+  const showMain = (imagePath) => {
+    if (!mainImage || !mainHint) return;
+    if (!imagePath) {
+      mainImage.classList.remove("show");
+      mainImage.removeAttribute("src");
+      mainHint.style.display = "block";
+      return;
+    }
+    mainImage.src = `/media/${imagePath}`;
+    mainImage.classList.add("show");
+    mainHint.style.display = "none";
+  };
+
   if (!images.length) {
     container.innerHTML = '<div class="hint">暂无图片</div>';
+    state.selectedProductMainImagePath = null;
+    showMain(null);
     return;
   }
+
+  const availablePaths = new Set(images.map((img) => img.image_path));
+  if (!state.selectedProductMainImagePath || !availablePaths.has(state.selectedProductMainImagePath)) {
+    state.selectedProductMainImagePath = images[0].image_path;
+  }
+  showMain(state.selectedProductMainImagePath);
 
   container.innerHTML = images
     .map(
       (img) => `
-    <div class="image-card">
+    <div class="image-card ${
+      state.selectedProductMainImagePath === img.image_path ? "active" : ""
+    }" data-image-path="${img.image_path}">
       <img src="/media/${img.image_path}" alt="${img.image_path}" />
       <button class="danger" data-id="${img.id}">删除图片</button>
     </div>
@@ -410,8 +437,16 @@ function renderProductImages(images) {
     )
     .join("");
 
+  container.querySelectorAll(".image-card[data-image-path]").forEach((card) => {
+    card.addEventListener("click", () => {
+      state.selectedProductMainImagePath = card.dataset.imagePath || null;
+      renderProductImages(images);
+    });
+  });
+
   container.querySelectorAll("button").forEach((button) => {
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
       const id = Number(button.dataset.id);
       if (!window.confirm("确认删除该图片？")) return;
       await request(`/api/product-images/${id}`, { method: "DELETE" });
@@ -439,6 +474,16 @@ function resetProductForm() {
   el("productFormTitle").textContent = "新增产品";
   el("productShowImagesToggle").checked = false;
   setProductImagePanelVisible(false);
+  state.selectedProductMainImagePath = null;
+  const mainImage = el("productMainImage");
+  if (mainImage) {
+    mainImage.classList.remove("show");
+    mainImage.removeAttribute("src");
+  }
+  const mainHint = el("productMainImageHint");
+  if (mainHint) {
+    mainHint.style.display = "block";
+  }
   el("imageFile").value = "";
   el("imageList").innerHTML = '<div class="hint">请先选择或保存一个产品后上传图片。</div>';
 }
@@ -719,6 +764,7 @@ async function loadProductDetail(id) {
   const data = await request(`/api/products/${id}`);
   const product = data.product;
   setActivePage("page-product-form", true);
+  state.selectedProductMainImagePath = null;
 
   el("productId").value = String(product.id);
   el("productCode").value = product.code || "";
@@ -732,6 +778,8 @@ async function loadProductDetail(id) {
   el("productPackageSize").value = product.package_size || "";
   el("productGrossWeight").value = product.gross_weight || "";
   el("productFormTitle").textContent = `编辑产品 #${product.id}`;
+  el("productShowImagesToggle").checked = true;
+  setProductImagePanelVisible(true);
 
   renderProductImages(data.images || []);
 }

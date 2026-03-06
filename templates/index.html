@@ -104,65 +104,79 @@
         <section class="card content-page" id="page-product-form">
           <h2 id="productFormTitle">新增产品</h2>
           <input id="productId" type="hidden" />
-          <div class="row">
-            <label for="productCode">编码</label>
-            <input id="productCode" type="text" placeholder="如 SQ1001A" />
-          </div>
-          <div class="row">
-            <label for="productChineseName">中文名</label>
-            <input id="productChineseName" type="text" placeholder="产品中文名称" />
-          </div>
-          <div class="row">
-            <label for="productCategory">目录</label>
-            <select id="productCategory"></select>
-          </div>
-          <div class="row">
-            <label for="productEffect">作用</label>
-            <textarea id="productEffect" rows="2" placeholder="产品作用"></textarea>
-          </div>
-          <div class="row">
-            <label for="productDescription">描述</label>
-            <textarea id="productDescription" rows="3" placeholder="产品描述"></textarea>
-          </div>
-          <div class="row">
-            <label for="productSprayRadius">喷洒半径</label>
-            <input id="productSprayRadius" type="text" placeholder="可选，如 2m" />
-          </div>
-          <div class="row">
-            <label for="productUnitWeight">单个重量</label>
-            <input id="productUnitWeight" type="text" placeholder="如 120g" />
-          </div>
-          <div class="row">
-            <label for="productPackageQuantity">包装数量</label>
-            <input id="productPackageQuantity" type="text" placeholder="如 100 个/箱" />
-          </div>
-          <div class="row">
-            <label for="productPackageSize">包装尺寸</label>
-            <input id="productPackageSize" type="text" placeholder="如 40x30x20cm" />
-          </div>
-          <div class="row">
-            <label for="productGrossWeight">总重量</label>
-            <input id="productGrossWeight" type="text" placeholder="如 12kg" />
-          </div>
-          <div class="row">
-            <label>图片上传</label>
-            <label class="checkbox">
-              <input id="productShowImagesToggle" type="checkbox" />
-              勾选后显示图片上传区
-            </label>
-          </div>
-          <div id="productImagePanel" class="product-image-panel">
-            <div id="imageGroup">
-              <div class="button-row">
-                <input id="imageFile" type="file" accept="image/*" />
-                <button id="uploadImageBtn">上传图片</button>
+          <div class="product-detail-shell">
+            <aside class="product-media-col">
+              <label class="checkbox">
+                <input id="productShowImagesToggle" type="checkbox" />
+                显示图片上传
+              </label>
+              <div id="productImagePanel" class="product-image-panel">
+                <div class="product-main-image-wrap">
+                  <img id="productMainImage" class="product-main-image" alt="产品主图" />
+                  <div id="productMainImageHint" class="hint">暂无图片</div>
+                </div>
+                <div class="button-row mt12">
+                  <input id="imageFile" type="file" accept="image/*" />
+                  <button id="uploadImageBtn">上传图片</button>
+                </div>
+                <div id="imageList" class="image-list product-thumbs"></div>
               </div>
-              <div id="imageList" class="image-list"></div>
+            </aside>
+
+            <div class="product-form-col">
+              <section class="detail-section">
+                <h3>基本信息</h3>
+                <div class="row">
+                  <label for="productCode">编码</label>
+                  <input id="productCode" type="text" placeholder="如 SQ1001A" />
+                </div>
+                <div class="row">
+                  <label for="productChineseName">中文名</label>
+                  <input id="productChineseName" type="text" placeholder="产品中文名称" />
+                </div>
+                <div class="row">
+                  <label for="productCategory">目录</label>
+                  <select id="productCategory"></select>
+                </div>
+                <div class="row">
+                  <label for="productEffect">作用</label>
+                  <textarea id="productEffect" rows="2" placeholder="产品作用"></textarea>
+                </div>
+                <div class="row">
+                  <label for="productDescription">描述</label>
+                  <textarea id="productDescription" rows="3" placeholder="产品描述"></textarea>
+                </div>
+              </section>
+
+              <section class="detail-section">
+                <h3>包装与参数</h3>
+                <div class="row">
+                  <label for="productSprayRadius">喷洒半径</label>
+                  <input id="productSprayRadius" type="text" placeholder="可选，如 2m" />
+                </div>
+                <div class="row">
+                  <label for="productUnitWeight">单个重量</label>
+                  <input id="productUnitWeight" type="text" placeholder="如 120g" />
+                </div>
+                <div class="row">
+                  <label for="productPackageQuantity">包装数量</label>
+                  <input id="productPackageQuantity" type="text" placeholder="如 100 个/箱" />
+                </div>
+                <div class="row">
+                  <label for="productPackageSize">包装尺寸</label>
+                  <input id="productPackageSize" type="text" placeholder="如 40x30x20cm" />
+                </div>
+                <div class="row">
+                  <label for="productGrossWeight">总重量</label>
+                  <input id="productGrossWeight" type="text" placeholder="如 12kg" />
+                </div>
+              </section>
+
+              <div class="button-row">
+                <button id="saveProductBtn">保存</button>
+                <button id="resetProductBtn">清空</button>
+              </div>
             </div>
-          </div>
-          <div class="button-row">
-            <button id="saveProductBtn">保存</button>
-            <button id="resetProductBtn">清空</button>
           </div>
         </section>
 
