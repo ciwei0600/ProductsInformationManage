@@ -208,6 +208,42 @@ function updateCategorySelectionHint() {
   }
 }
 
+function renderCategoryProductsPreview(items) {
+  const body = el("categoryProductsBody");
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="5" class="hint">该目录下暂无产品</td></tr>';
+    return;
+  }
+
+  body.innerHTML = items
+    .map((item) => {
+      const name = item.chinese_name || item.name || "-";
+      return `
+      <tr>
+        <td>${item.code || "-"}</td>
+        <td>${name}</td>
+        <td>${item.effect || "-"}</td>
+        <td>${item.package_quantity || "-"}</td>
+        <td>${item.gross_weight || "-"}</td>
+      </tr>
+      `;
+    })
+    .join("");
+}
+
+async function refreshCategoryProductsPreview() {
+  const selectedId = Number(el("manageCategoryId").value);
+  if (!selectedId) {
+    setText("categoryProductsSummary", "请选择目录查看产品");
+    renderCategoryProductsPreview([]);
+    return;
+  }
+
+  const items = await fetchAllProducts({ categoryId: selectedId });
+  setText("categoryProductsSummary", `当前目录下共 ${items.length} 个产品（含子目录）`);
+  renderCategoryProductsPreview(items);
+}
+
 function renderCategoryTree() {
   const container = el("categoryTree");
 
@@ -237,6 +273,7 @@ function renderCategoryTree() {
       el("newCategoryParent").value = String(id);
       updateCategorySelectionHint();
       renderCategoryTree();
+      refreshCategoryProductsPreview().catch((err) => toast(err.message));
     });
   });
 }
@@ -401,6 +438,7 @@ async function loadCategories() {
   updateCategorySelectionHint();
 
   renderCategoryTree();
+  await refreshCategoryProductsPreview();
 }
 
 async function loadProducts() {
@@ -796,6 +834,7 @@ function bindEvents() {
     }
     updateCategorySelectionHint();
     renderCategoryTree();
+    refreshCategoryProductsPreview().catch((err) => toast(err.message));
   });
   document.querySelectorAll("[data-category-action]").forEach((button) => {
     button.addEventListener("click", () => {

@@ -208,6 +208,10 @@ button.danger {
   font-size: 15px;
 }
 
+#categoryProductsBody td {
+  font-size: 13px;
+}
+
 .action-tabs {
   display: flex;
   gap: 8px;
