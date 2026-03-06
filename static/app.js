@@ -271,7 +271,6 @@ function renderCategoryTree() {
               <div class="tree-product-main">
                 <div class="tree-product-media">
                   ${imageBlock}
-                  <div class="tree-product-image-count">共 ${product.image_count || 0} 张</div>
                 </div>
                 <div class="tree-product-info">
                   <div class="tree-product-title">${product.code || "-"} | ${name}</div>
@@ -350,7 +349,7 @@ function renderProducts(items) {
         <td>${item.package_size || "-"}</td>
         <td>${item.gross_weight || "-"}</td>
         <td>${item.category_name || "-"}</td>
-        <td>${img}<div class="hint">共 ${item.image_count} 张</div></td>
+        <td>${img}</td>
         <td>
           <div class="button-row">
             <button data-action="edit" data-id="${item.id}">编辑</button>

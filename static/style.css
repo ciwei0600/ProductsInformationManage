@@ -365,11 +365,6 @@ button.danger {
   font-size: 12px;
 }
 
-.tree-product-image-count {
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .tree-product-title {
   font-weight: 600;
   color: #111827;
