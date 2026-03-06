@@ -20,6 +20,7 @@ DEFAULT_ZIP_PATH = BASE_DIR / "目录图片.zip"
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 PRODUCT_CODE_PATTERN = re.compile(r"^[A-Za-z]{1,10}\d[\w-]*$")
+NATURAL_TOKEN_PATTERN = re.compile(r"(\d+(?:\.\d+)?)")
 
 
 def create_app() -> Flask:
@@ -224,7 +225,10 @@ def create_app() -> Flask:
             FROM products p
             LEFT JOIN categories c ON c.id = p.category_id
             {where_sql}
-            ORDER BY p.updated_at DESC, p.id DESC
+            ORDER BY
+                COALESCE(p.category_id, 0) ASC,
+                COALESCE(NULLIF(p.chinese_name, ''), p.name, p.code) COLLATE NATURAL_ZH_NUM ASC,
+                p.id ASC
             LIMIT ? OFFSET ?
             """,
             [*params, page_size, offset],
@@ -402,8 +406,44 @@ def get_db() -> sqlite3.Connection:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.create_collation("NATURAL_ZH_NUM", natural_collation)
         g.db = conn
     return g.db
+
+
+def natural_collation(left: str | None, right: str | None) -> int:
+    left_key = natural_sort_key(left)
+    right_key = natural_sort_key(right)
+
+    for left_part, right_part in zip(left_key, right_key):
+        left_type, left_value = left_part
+        right_type, right_value = right_part
+
+        if left_type != right_type:
+            return -1 if left_type < right_type else 1
+
+        if left_value != right_value:
+            return -1 if left_value < right_value else 1
+
+    if len(left_key) != len(right_key):
+        return -1 if len(left_key) < len(right_key) else 1
+    return 0
+
+
+def natural_sort_key(value: str | None) -> list[tuple[int, Any]]:
+    text = (value or "").strip()
+    if not text:
+        return [(1, "")]
+
+    key: list[tuple[int, Any]] = []
+    for token in NATURAL_TOKEN_PATTERN.split(text):
+        if token == "":
+            continue
+        if NATURAL_TOKEN_PATTERN.fullmatch(token):
+            key.append((0, float(token)))
+        else:
+            key.append((1, token.lower()))
+    return key
 
 
 def init_db() -> None:
