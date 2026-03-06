@@ -29,6 +29,14 @@
           <a class="nav-level2" href="#page-product-form" data-page="page-product-form">新增/编辑产品</a>
           <a class="nav-level2" href="#page-product-images" data-page="page-product-images">产品图片</a>
         </div>
+
+        <div class="nav-group">
+          <div class="nav-level1">生产资料</div>
+          <a class="nav-level2" href="#page-material-params" data-page="page-material-params">参数计算</a>
+          <a class="nav-level2" href="#page-material-packaging" data-page="page-material-packaging">包装数据</a>
+          <a class="nav-level2" href="#page-material-cost" data-page="page-material-cost">成本计算</a>
+          <a class="nav-level2" href="#page-material-quote" data-page="page-material-quote">报价单</a>
+        </div>
       </aside>
 
       <section class="content-column">
@@ -159,6 +167,133 @@
               <button id="uploadImageBtn">上传图片</button>
             </div>
             <div id="imageList" class="image-list"></div>
+          </div>
+        </section>
+
+        <section class="card content-page" id="page-material-params">
+          <h2>参数计算</h2>
+          <div class="row">
+            <label for="materialParamProduct">产品</label>
+            <select id="materialParamProduct"></select>
+          </div>
+          <div class="row">
+            <label for="materialParamQuantity">数量</label>
+            <input id="materialParamQuantity" type="number" min="1" step="1" value="1" />
+          </div>
+          <button id="calcParamBtn">计算参数</button>
+
+          <div class="result-grid mt12">
+            <div class="result-card"><div class="result-label">产品编号</div><div id="paramCode" class="result-value">-</div></div>
+            <div class="result-card"><div class="result-label">中文名</div><div id="paramName" class="result-value">-</div></div>
+            <div class="result-card"><div class="result-label">喷洒面积估算</div><div id="paramSprayArea" class="result-value">-</div></div>
+            <div class="result-card"><div class="result-label">净重估算</div><div id="paramNetWeight" class="result-value">-</div></div>
+            <div class="result-card"><div class="result-label">单箱数量</div><div id="paramPerPackageQty" class="result-value">-</div></div>
+            <div class="result-card"><div class="result-label">预估箱数</div><div id="paramPackageCount" class="result-value">-</div></div>
+          </div>
+        </section>
+
+        <section class="card content-page" id="page-material-packaging">
+          <h2>包装数据</h2>
+          <div class="filter-grid material-filter-grid">
+            <input id="materialPackageKeyword" type="text" placeholder="按产品编号/中文名搜索" />
+            <select id="materialPackageCategory"></select>
+            <button id="materialPackageSearchBtn">查询</button>
+          </div>
+          <div id="materialPackageSummary" class="hint mt12">共 0 个产品</div>
+          <div class="table-wrap mt12">
+            <table>
+              <thead>
+                <tr>
+                  <th>产品编号</th>
+                  <th>中文名</th>
+                  <th>包装数量</th>
+                  <th>包装尺寸</th>
+                  <th>单个重量</th>
+                  <th>总重量</th>
+                  <th>目录</th>
+                </tr>
+              </thead>
+              <tbody id="materialPackageBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card content-page" id="page-material-cost">
+          <h2>成本计算</h2>
+          <div class="row">
+            <label for="materialCostProduct">产品</label>
+            <select id="materialCostProduct"></select>
+          </div>
+          <div class="row">
+            <label for="materialCostQuantity">数量</label>
+            <input id="materialCostQuantity" type="number" min="1" step="1" value="1" />
+          </div>
+          <div class="row">
+            <label for="materialCostUnit">单位成本</label>
+            <input id="materialCostUnit" type="number" min="0" step="0.01" value="0" />
+          </div>
+          <div class="row">
+            <label for="materialCostPack">单箱包装费</label>
+            <input id="materialCostPack" type="number" min="0" step="0.01" value="0" />
+          </div>
+          <div class="row">
+            <label for="materialCostFreight">单箱运费</label>
+            <input id="materialCostFreight" type="number" min="0" step="0.01" value="0" />
+          </div>
+          <div class="row">
+            <label for="materialCostTaxRate">税率(%)</label>
+            <input id="materialCostTaxRate" type="number" min="0" step="0.01" value="0" />
+          </div>
+          <div class="row">
+            <label for="materialCostProfitRate">利润率(%)</label>
+            <input id="materialCostProfitRate" type="number" min="0" step="0.01" value="0" />
+          </div>
+          <button id="calcCostBtn">计算成本与建议报价</button>
+
+          <div class="result-grid mt12">
+            <div class="result-card"><div class="result-label">预估箱数</div><div id="costPackageCount" class="result-value">-</div></div>
+            <div class="result-card"><div class="result-label">成本小计</div><div id="costSubtotal" class="result-value">-</div></div>
+            <div class="result-card"><div class="result-label">未税建议总价</div><div id="costQuoteExTax" class="result-value">-</div></div>
+            <div class="result-card"><div class="result-label">含税建议总价</div><div id="costQuoteInclTax" class="result-value">-</div></div>
+            <div class="result-card"><div class="result-label">未税建议单价</div><div id="costUnitExTax" class="result-value">-</div></div>
+            <div class="result-card"><div class="result-label">含税建议单价</div><div id="costUnitInclTax" class="result-value">-</div></div>
+          </div>
+        </section>
+
+        <section class="card content-page" id="page-material-quote">
+          <h2>报价单</h2>
+          <div class="row">
+            <label for="quoteCustomer">客户名称</label>
+            <input id="quoteCustomer" type="text" placeholder="客户名称（可选）" />
+          </div>
+          <div class="row">
+            <label for="quoteDate">报价日期</label>
+            <input id="quoteDate" type="date" />
+          </div>
+          <div class="line-editor">
+            <select id="quoteProduct"></select>
+            <input id="quoteQty" type="number" min="1" step="1" value="1" placeholder="数量" />
+            <input id="quoteUnitPrice" type="number" min="0" step="0.01" value="0" placeholder="单价" />
+            <button id="addQuoteLineBtn">添加行</button>
+          </div>
+          <div class="table-wrap mt12">
+            <table>
+              <thead>
+                <tr>
+                  <th>产品编号</th>
+                  <th>中文名</th>
+                  <th>数量</th>
+                  <th>单价</th>
+                  <th>金额</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="quoteLinesBody"></tbody>
+            </table>
+          </div>
+          <div id="quoteTotal" class="hint mt12">总数量: 0 | 报价总额: 0.00</div>
+          <div class="button-row mt12">
+            <button id="clearQuoteBtn" class="danger">清空报价单</button>
           </div>
         </section>
       </section>

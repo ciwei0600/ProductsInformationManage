@@ -5,6 +5,8 @@ const state = {
   pageSize: 20,
   total: 0,
   selectedTreeCategoryId: null,
+  materialProducts: [],
+  quoteLines: [],
 };
 
 function el(id) {
@@ -25,6 +27,62 @@ async function request(url, options = {}) {
     throw new Error(data.error || "请求失败");
   }
   return data;
+}
+
+function parseFirstNumber(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function extractUnit(value, defaultUnit = "") {
+  const text = String(value || "").trim();
+  if (!text) return defaultUnit;
+  const unit = text.replace(/-?\d+(?:\.\d+)?/g, "").trim();
+  return unit || defaultUnit;
+}
+
+function toMoney(value) {
+  if (!Number.isFinite(value)) return "-";
+  return value.toFixed(2);
+}
+
+function setText(id, value) {
+  el(id).textContent = value;
+}
+
+function productDisplayName(product) {
+  const name = product.chinese_name || product.name || "";
+  return `${product.code} | ${name}`;
+}
+
+function getMaterialProductById(rawId) {
+  const id = Number(rawId);
+  if (!id) return null;
+  return state.materialProducts.find((item) => item.id === id) || null;
+}
+
+function fillMaterialProductSelect(selectId, placeholder = "请选择产品") {
+  const select = el(selectId);
+  if (!select) return;
+
+  const currentValue = select.value;
+  let html = `<option value="">${placeholder}</option>`;
+  for (const item of state.materialProducts) {
+    html += `<option value="${item.id}">${productDisplayName(item)}</option>`;
+  }
+
+  select.innerHTML = html;
+  if ([...select.options].some((option) => option.value === currentValue)) {
+    select.value = currentValue;
+    return;
+  }
+
+  if (state.materialProducts.length > 0) {
+    select.value = String(state.materialProducts[0].id);
+  }
 }
 
 function setActivePage(pageId, updateHash = true) {
@@ -69,11 +127,9 @@ function initSideNavigation() {
 }
 
 function categoryPathMap() {
-  const byId = new Map();
   const children = new Map();
 
   for (const item of state.categories) {
-    byId.set(item.id, item);
     if (!children.has(item.parent_id ?? 0)) {
       children.set(item.parent_id ?? 0, []);
     }
@@ -113,7 +169,7 @@ function fillCategorySelect(selectId, includeAll = false) {
   }
 
   select.innerHTML = html;
-  if ([...select.options].some((o) => o.value === currentValue)) {
+  if ([...select.options].some((option) => option.value === currentValue)) {
     select.value = currentValue;
   }
 }
@@ -203,7 +259,7 @@ function renderProducts(items) {
       if (String(el("productId").value) === String(id)) {
         resetProductForm();
       }
-      await Promise.all([loadProducts(), loadStats()]);
+      await Promise.all([loadProducts(), loadStats(), loadMaterialProducts()]);
     });
   });
 }
@@ -233,9 +289,9 @@ function renderProductImages(images) {
     )
     .join("");
 
-  container.querySelectorAll("button").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const id = Number(btn.dataset.id);
+  container.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = Number(button.dataset.id);
       if (!window.confirm("确认删除该图片？")) return;
       await request(`/api/product-images/${id}`, { method: "DELETE" });
       toast("图片已删除");
@@ -264,6 +320,25 @@ function resetProductForm() {
   el("imageList").innerHTML = '<div class="hint">请先选择或保存一个产品后上传图片。</div>';
 }
 
+function resetMaterialPanels() {
+  setText("paramCode", "-");
+  setText("paramName", "-");
+  setText("paramSprayArea", "-");
+  setText("paramNetWeight", "-");
+  setText("paramPerPackageQty", "-");
+  setText("paramPackageCount", "-");
+
+  setText("costPackageCount", "-");
+  setText("costSubtotal", "-");
+  setText("costQuoteExTax", "-");
+  setText("costQuoteInclTax", "-");
+  setText("costUnitExTax", "-");
+  setText("costUnitInclTax", "-");
+
+  renderMaterialPackageTable([]);
+  renderQuoteLines();
+}
+
 async function loadStats() {
   const stats = await request("/api/stats");
   el("stats").textContent = `目录: ${stats.categories} | 产品: ${stats.products} | 图片: ${stats.images}`;
@@ -278,6 +353,7 @@ async function loadCategories() {
   fillCategorySelect("manageCategoryId");
   fillCategorySelect("filterCategory", true);
   fillCategorySelect("productCategory");
+  fillCategorySelect("materialPackageCategory", true);
 
   renderCategoryTree();
 }
@@ -298,6 +374,230 @@ async function loadProducts() {
   state.total = data.total;
   renderProducts(data.items);
   updatePager();
+}
+
+async function fetchAllProducts(options = {}) {
+  const keyword = (options.keyword || "").trim();
+  const categoryId = options.categoryId || "";
+  const items = [];
+  const pageSize = 100;
+  let page = 1;
+  let total = 0;
+
+  do {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    if (keyword) params.set("q", keyword);
+    if (categoryId) params.set("category_id", String(categoryId));
+
+    const data = await request(`/api/products?${params.toString()}`);
+    items.push(...(data.items || []));
+    total = Number(data.total || 0);
+    page += 1;
+  } while (items.length < total);
+
+  return items;
+}
+
+function renderMaterialPackageTable(items) {
+  const body = el("materialPackageBody");
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="7" class="hint">暂无数据</td></tr>';
+    setText("materialPackageSummary", "共 0 个产品");
+    return;
+  }
+
+  body.innerHTML = items
+    .map((item) => {
+      const name = item.chinese_name || item.name || "-";
+      return `
+      <tr>
+        <td>${item.code || "-"}</td>
+        <td>${name}</td>
+        <td>${item.package_quantity || "-"}</td>
+        <td>${item.package_size || "-"}</td>
+        <td>${item.unit_weight || "-"}</td>
+        <td>${item.gross_weight || "-"}</td>
+        <td>${item.category_name || "-"}</td>
+      </tr>
+      `;
+    })
+    .join("");
+
+  setText("materialPackageSummary", `共 ${items.length} 个产品`);
+}
+
+function refreshMaterialSelectors() {
+  fillMaterialProductSelect("materialParamProduct");
+  fillMaterialProductSelect("materialCostProduct");
+  fillMaterialProductSelect("quoteProduct");
+}
+
+async function refreshMaterialPackagingByFilter() {
+  const keyword = el("materialPackageKeyword").value.trim();
+  const categoryId = el("materialPackageCategory").value;
+
+  if (!keyword && !categoryId) {
+    renderMaterialPackageTable(state.materialProducts);
+    return;
+  }
+
+  const items = await fetchAllProducts({ keyword, categoryId });
+  renderMaterialPackageTable(items);
+}
+
+async function loadMaterialProducts() {
+  state.materialProducts = await fetchAllProducts();
+  refreshMaterialSelectors();
+  await refreshMaterialPackagingByFilter();
+}
+
+function calculateMaterialParams() {
+  const product = getMaterialProductById(el("materialParamProduct").value);
+  if (!product) {
+    throw new Error("请选择产品");
+  }
+
+  const quantity = Number(el("materialParamQuantity").value);
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new Error("数量必须大于 0");
+  }
+
+  const packageQty = parseFirstNumber(product.package_quantity);
+  const unitWeight = parseFirstNumber(product.unit_weight);
+  const radius = parseFirstNumber(product.spray_radius);
+
+  setText("paramCode", product.code || "-");
+  setText("paramName", product.chinese_name || product.name || "-");
+  setText("paramPerPackageQty", packageQty != null ? String(packageQty) : product.package_quantity || "-");
+
+  if (packageQty != null && packageQty > 0) {
+    setText("paramPackageCount", `${Math.ceil(quantity / packageQty)} 箱`);
+  } else {
+    setText("paramPackageCount", "-");
+  }
+
+  if (unitWeight != null) {
+    const weightUnit = extractUnit(product.unit_weight, "");
+    setText("paramNetWeight", `${(unitWeight * quantity).toFixed(2)}${weightUnit}`);
+  } else {
+    setText("paramNetWeight", "-");
+  }
+
+  if (radius != null && radius > 0) {
+    const area = Math.PI * radius * radius * quantity;
+    setText("paramSprayArea", `${area.toFixed(2)} m²`);
+  } else {
+    setText("paramSprayArea", "-");
+  }
+}
+
+function calculateMaterialCost() {
+  const product = getMaterialProductById(el("materialCostProduct").value);
+  if (!product) {
+    throw new Error("请选择产品");
+  }
+
+  const quantity = Number(el("materialCostQuantity").value);
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new Error("数量必须大于 0");
+  }
+
+  const unitCost = Number(el("materialCostUnit").value);
+  const packageCost = Number(el("materialCostPack").value);
+  const freightCost = Number(el("materialCostFreight").value);
+  const taxRate = Number(el("materialCostTaxRate").value) / 100;
+  const profitRate = Number(el("materialCostProfitRate").value) / 100;
+
+  const packageQty = parseFirstNumber(product.package_quantity);
+  const packageCount = packageQty && packageQty > 0 ? Math.ceil(quantity / packageQty) : 0;
+
+  const materialTotal = quantity * (Number.isFinite(unitCost) ? unitCost : 0);
+  const packageTotal = packageCount * (Number.isFinite(packageCost) ? packageCost : 0);
+  const freightTotal = packageCount * (Number.isFinite(freightCost) ? freightCost : 0);
+  const subtotal = materialTotal + packageTotal + freightTotal;
+
+  const quoteExTax = subtotal * (1 + (Number.isFinite(profitRate) ? profitRate : 0));
+  const quoteInclTax = quoteExTax * (1 + (Number.isFinite(taxRate) ? taxRate : 0));
+  const unitExTax = quoteExTax / quantity;
+  const unitInclTax = quoteInclTax / quantity;
+
+  setText("costPackageCount", `${packageCount} 箱`);
+  setText("costSubtotal", `¥${toMoney(subtotal)}`);
+  setText("costQuoteExTax", `¥${toMoney(quoteExTax)}`);
+  setText("costQuoteInclTax", `¥${toMoney(quoteInclTax)}`);
+  setText("costUnitExTax", `¥${toMoney(unitExTax)}`);
+  setText("costUnitInclTax", `¥${toMoney(unitInclTax)}`);
+}
+
+function renderQuoteLines() {
+  const body = el("quoteLinesBody");
+  if (!state.quoteLines.length) {
+    body.innerHTML = '<tr><td colspan="6" class="hint">暂无报价行</td></tr>';
+    setText("quoteTotal", "总数量: 0 | 报价总额: 0.00");
+    return;
+  }
+
+  body.innerHTML = state.quoteLines
+    .map(
+      (line) => `
+      <tr>
+        <td>${line.code}</td>
+        <td>${line.name}</td>
+        <td>${line.quantity}</td>
+        <td>${toMoney(line.unitPrice)}</td>
+        <td>${toMoney(line.amount)}</td>
+        <td><button class="danger" data-remove-line="${line.id}">删除</button></td>
+      </tr>
+    `
+    )
+    .join("");
+
+  body.querySelectorAll("button[data-remove-line]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const lineId = Number(button.dataset.removeLine);
+      state.quoteLines = state.quoteLines.filter((line) => line.id !== lineId);
+      renderQuoteLines();
+    });
+  });
+
+  const totalQuantity = state.quoteLines.reduce((sum, line) => sum + line.quantity, 0);
+  const totalAmount = state.quoteLines.reduce((sum, line) => sum + line.amount, 0);
+  setText("quoteTotal", `总数量: ${totalQuantity} | 报价总额: ${toMoney(totalAmount)}`);
+}
+
+function addQuoteLine() {
+  const product = getMaterialProductById(el("quoteProduct").value);
+  if (!product) throw new Error("请选择产品");
+
+  const quantity = Number(el("quoteQty").value);
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new Error("数量必须大于 0");
+  }
+
+  const unitPrice = Number(el("quoteUnitPrice").value);
+  if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+    throw new Error("单价不能小于 0");
+  }
+
+  state.quoteLines.push({
+    id: Date.now() + Math.floor(Math.random() * 1000),
+    productId: product.id,
+    code: product.code || "-",
+    name: product.chinese_name || product.name || "-",
+    quantity,
+    unitPrice,
+    amount: quantity * unitPrice,
+  });
+
+  renderQuoteLines();
+}
+
+function clearQuoteLines() {
+  state.quoteLines = [];
+  renderQuoteLines();
 }
 
 async function loadProductDetail(id) {
@@ -350,7 +650,7 @@ async function renameCategory() {
 
   el("renameCategoryName").value = "";
   toast("目录已重命名");
-  await Promise.all([loadCategories(), loadProducts()]);
+  await Promise.all([loadCategories(), loadProducts(), loadMaterialProducts()]);
 }
 
 async function deleteCategory() {
@@ -360,7 +660,7 @@ async function deleteCategory() {
 
   await request(`/api/categories/${categoryId}`, { method: "DELETE" });
   toast("目录已删除");
-  await Promise.all([loadCategories(), loadProducts(), loadStats()]);
+  await Promise.all([loadCategories(), loadProducts(), loadStats(), loadMaterialProducts()]);
 }
 
 async function saveProduct() {
@@ -385,7 +685,8 @@ async function saveProduct() {
       body: JSON.stringify(payload),
     });
     toast("产品已更新");
-    await Promise.all([loadProducts(), loadStats(), loadProductDetail(Number(productId))]);
+    await Promise.all([loadProducts(), loadStats(), loadMaterialProducts()]);
+    await loadProductDetail(Number(productId));
     return;
   }
 
@@ -395,7 +696,7 @@ async function saveProduct() {
     body: JSON.stringify(payload),
   });
   toast("产品已新增");
-  await Promise.all([loadProducts(), loadStats()]);
+  await Promise.all([loadProducts(), loadStats(), loadMaterialProducts()]);
   await loadProductDetail(created.id);
 }
 
@@ -423,24 +724,24 @@ async function uploadImage() {
 
 function bindEvents() {
   el("createCategoryBtn").addEventListener("click", () =>
-    createCategory().catch((e) => toast(e.message))
+    createCategory().catch((err) => toast(err.message))
   );
   el("renameCategoryBtn").addEventListener("click", () =>
-    renameCategory().catch((e) => toast(e.message))
+    renameCategory().catch((err) => toast(err.message))
   );
   el("deleteCategoryBtn").addEventListener("click", () =>
-    deleteCategory().catch((e) => toast(e.message))
+    deleteCategory().catch((err) => toast(err.message))
   );
 
   el("searchBtn").addEventListener("click", () => {
     state.page = 1;
-    loadProducts().catch((e) => toast(e.message));
+    loadProducts().catch((err) => toast(err.message));
   });
 
   el("searchKeyword").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       state.page = 1;
-      loadProducts().catch((e) => toast(e.message));
+      loadProducts().catch((err) => toast(err.message));
     }
   });
 
@@ -450,28 +751,69 @@ function bindEvents() {
       : null;
     state.page = 1;
     renderCategoryTree();
-    loadProducts().catch((e) => toast(e.message));
+    loadProducts().catch((err) => toast(err.message));
   });
 
   el("saveProductBtn").addEventListener("click", () =>
-    saveProduct().catch((e) => toast(e.message))
+    saveProduct().catch((err) => toast(err.message))
   );
   el("resetProductBtn").addEventListener("click", resetProductForm);
   el("uploadImageBtn").addEventListener("click", () =>
-    uploadImage().catch((e) => toast(e.message))
+    uploadImage().catch((err) => toast(err.message))
   );
 
   el("prevPageBtn").addEventListener("click", () => {
     if (state.page <= 1) return;
     state.page -= 1;
-    loadProducts().catch((e) => toast(e.message));
+    loadProducts().catch((err) => toast(err.message));
   });
 
   el("nextPageBtn").addEventListener("click", () => {
     const totalPages = Math.max(1, Math.ceil(state.total / state.pageSize));
     if (state.page >= totalPages) return;
     state.page += 1;
-    loadProducts().catch((e) => toast(e.message));
+    loadProducts().catch((err) => toast(err.message));
+  });
+
+  el("calcParamBtn").addEventListener("click", () => {
+    try {
+      calculateMaterialParams();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+
+  el("materialPackageSearchBtn").addEventListener("click", () =>
+    refreshMaterialPackagingByFilter().catch((err) => toast(err.message))
+  );
+  el("materialPackageKeyword").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      refreshMaterialPackagingByFilter().catch((err) => toast(err.message));
+    }
+  });
+  el("materialPackageCategory").addEventListener("change", () =>
+    refreshMaterialPackagingByFilter().catch((err) => toast(err.message))
+  );
+
+  el("calcCostBtn").addEventListener("click", () => {
+    try {
+      calculateMaterialCost();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+
+  el("addQuoteLineBtn").addEventListener("click", () => {
+    try {
+      addQuoteLine();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+  el("clearQuoteBtn").addEventListener("click", () => {
+    if (!state.quoteLines.length) return;
+    if (!window.confirm("确认清空报价单？")) return;
+    clearQuoteLines();
   });
 }
 
@@ -479,8 +821,11 @@ async function bootstrap() {
   bindEvents();
   initSideNavigation();
   resetProductForm();
+  resetMaterialPanels();
+  el("quoteDate").value = new Date().toISOString().slice(0, 10);
+
   await Promise.all([loadCategories(), loadStats()]);
-  await loadProducts();
+  await Promise.all([loadProducts(), loadMaterialProducts()]);
 }
 
 bootstrap().catch((err) => {

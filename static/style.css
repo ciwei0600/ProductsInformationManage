@@ -224,6 +224,43 @@ button.danger {
   gap: 8px;
 }
 
+.material-filter-grid {
+  grid-template-columns: 1fr 220px 100px;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.result-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfd;
+  padding: 10px;
+}
+
+.result-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.result-value {
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-all;
+}
+
+.line-editor {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 120px 120px 100px;
+  gap: 8px;
+  align-items: center;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -334,6 +371,10 @@ td {
   }
 
   .filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .line-editor {
     grid-template-columns: 1fr;
   }
 
