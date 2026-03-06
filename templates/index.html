@@ -43,44 +43,16 @@
 
           <div class="category-layout">
             <div class="category-action-zone">
-              <div class="row">
-                <label for="manageCategoryId">当前目录</label>
-                <select id="manageCategoryId"></select>
-              </div>
-              <div id="categorySelectedHint" class="hint">未选择目录。可直接新增一级目录。</div>
-
               <div class="action-tabs" id="categoryActionTabs">
                 <button type="button" class="action-tab active" data-category-action="add">新增</button>
                 <button type="button" class="action-tab" data-category-action="rename">修改</button>
                 <button type="button" class="action-tab danger" data-category-action="delete">删除</button>
               </div>
-
-              <section class="action-panel active" data-category-panel="add">
-                <div class="row">
-                  <label for="newCategoryName">名称</label>
-                  <input id="newCategoryName" type="text" placeholder="目录名称" />
-                </div>
-                <div class="row">
-                  <label for="newCategoryParent">父级</label>
-                  <select id="newCategoryParent"></select>
-                </div>
-                <button id="createCategoryBtn">新增目录</button>
-              </section>
-
-              <section class="action-panel" data-category-panel="rename">
-                <div class="row">
-                  <label for="renameCategoryName">新名称</label>
-                  <input id="renameCategoryName" type="text" placeholder="新目录名" />
-                </div>
-                <button id="renameCategoryBtn">重命名</button>
-              </section>
-
-              <section class="action-panel" data-category-panel="delete">
-                <div class="hint">仅空目录可删除（无子目录、无产品）。</div>
-                <div class="mt12">
-                  <button id="deleteCategoryBtn" class="danger">删除目录</button>
-                </div>
-              </section>
+              <div class="row">
+                <label for="categoryActionName">名称</label>
+                <input id="categoryActionName" type="text" placeholder="目录名称" />
+              </div>
+              <button id="applyCategoryActionBtn">新增目录</button>
             </div>
 
             <div class="category-tree-zone">

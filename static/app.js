@@ -150,6 +150,7 @@ function categoryPathMap() {
 
 function fillCategorySelect(selectId, includeAll = false) {
   const select = el(selectId);
+  if (!select) return;
   const pathMap = categoryPathMap();
   const currentValue = select.value;
 
@@ -172,35 +173,41 @@ function fillCategorySelect(selectId, includeAll = false) {
 }
 
 function setCategoryAction(action) {
-  const allowRenameDelete = Boolean(el("manageCategoryId").value);
-  const finalAction = !allowRenameDelete && action !== "add" ? "add" : action;
+  const hasSelectedCategory = Boolean(state.selectedTreeCategoryId);
+  const finalAction = !hasSelectedCategory && action !== "add" ? "add" : action;
   state.categoryAction = finalAction;
 
   document.querySelectorAll("[data-category-action]").forEach((button) => {
     const active = button.dataset.categoryAction === finalAction;
     button.classList.toggle("active", active);
   });
-  document.querySelectorAll("[data-category-panel]").forEach((panel) => {
-    const active = panel.dataset.categoryPanel === finalAction;
-    panel.classList.toggle("active", active);
-  });
-}
-
-function updateCategorySelectionHint() {
-  const selectedId = Number(el("manageCategoryId").value);
-  const pathMap = categoryPathMap();
-  const path = selectedId ? pathMap.get(selectedId) || `目录 #${selectedId}` : "";
-  const hint = selectedId
-    ? `已选择目录：${path}。可在上方切换新增/修改/删除功能。`
-    : "未选择目录。可直接新增一级目录。";
-  setText("categorySelectedHint", hint);
-
   document.querySelectorAll("[data-category-action='rename'], [data-category-action='delete']").forEach((button) => {
-    button.disabled = !selectedId;
+    button.disabled = !hasSelectedCategory;
   });
 
-  if (!selectedId && state.categoryAction !== "add") {
-    setCategoryAction("add");
+  const actionButton = el("applyCategoryActionBtn");
+  if (actionButton) {
+    actionButton.classList.remove("danger");
+    if (finalAction === "delete") {
+      actionButton.classList.add("danger");
+    }
+
+    const labelMap = {
+      add: "新增目录",
+      rename: "修改目录",
+      delete: "删除目录",
+    };
+    actionButton.textContent = labelMap[finalAction] || "执行";
+  }
+
+  const nameInput = el("categoryActionName");
+  if (nameInput) {
+    const placeholderMap = {
+      add: "目录名称",
+      rename: "目录名称",
+      delete: "目录名称（删除时可不填）",
+    };
+    nameInput.placeholder = placeholderMap[finalAction] || "目录名称";
   }
 }
 
@@ -270,9 +277,7 @@ function renderCategoryTree() {
     item.addEventListener("click", () => {
       const id = Number(item.dataset.id);
       state.selectedTreeCategoryId = id;
-      el("manageCategoryId").value = String(id);
-      el("newCategoryParent").value = String(id);
-      updateCategorySelectionHint();
+      setCategoryAction(state.categoryAction);
       if (item.dataset.expandable === "1") {
         if (state.expandedCategoryIds.has(id)) {
           state.expandedCategoryIds.delete(id);
@@ -422,22 +427,18 @@ async function loadCategories() {
   state.categories = data.items;
   state.categoryTree = data.tree;
 
-  fillCategorySelect("newCategoryParent");
-  fillCategorySelect("manageCategoryId");
   fillCategorySelect("filterCategory", true);
   fillCategorySelect("productCategory");
   fillCategorySelect("materialPackageCategory", true);
 
-  if (el("newCategoryParent").options.length > 0) {
-    el("newCategoryParent").options[0].textContent = "一级目录";
-  }
-  if (el("manageCategoryId").options.length > 0) {
-    el("manageCategoryId").options[0].textContent = "请选择目录";
+  if (
+    state.selectedTreeCategoryId &&
+    !state.categories.some((category) => category.id === state.selectedTreeCategoryId)
+  ) {
+    state.selectedTreeCategoryId = null;
   }
 
-  const selectedId = Number(el("manageCategoryId").value);
-  state.selectedTreeCategoryId = selectedId || null;
-  updateCategorySelectionHint();
+  setCategoryAction(state.categoryAction);
 
   renderCategoryTree();
 }
@@ -675,57 +676,51 @@ async function loadProductDetail(id) {
   renderProductImages(data.images || []);
 }
 
-async function createCategory() {
-  const name = el("newCategoryName").value.trim();
-  const parentId = el("newCategoryParent").value;
-  const created = await request("/api/categories", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name,
-      parent_id: parentId ? Number(parentId) : null,
-    }),
-  });
-  el("newCategoryName").value = "";
-  toast("目录已新增");
-  await Promise.all([loadCategories(), loadProducts(), loadStats()]);
+async function applyCategoryAction() {
+  const action = state.categoryAction;
+  const categoryId = state.selectedTreeCategoryId;
+  const name = el("categoryActionName").value.trim();
 
-  if (created && created.id) {
-    const idText = String(created.id);
-    el("manageCategoryId").value = idText;
-    el("newCategoryParent").value = idText;
-    state.selectedTreeCategoryId = created.id;
-    updateCategorySelectionHint();
-    renderCategoryTree();
+  if (!categoryId) {
+    throw new Error("请先在目录树选择类型");
   }
-}
 
-async function renameCategory() {
-  const categoryId = el("manageCategoryId").value;
-  const name = el("renameCategoryName").value.trim();
-  if (!categoryId) throw new Error("请选择目录");
+  if (action === "add") {
+    if (!name) throw new Error("目录名称不能为空");
+    const created = await request("/api/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        parent_id: categoryId,
+      }),
+    });
+    el("categoryActionName").value = "";
+    state.selectedTreeCategoryId = created.id || state.selectedTreeCategoryId;
+    toast("目录已新增");
+    await Promise.all([loadCategories(), loadProducts(), loadStats(), loadMaterialProducts()]);
+    return;
+  }
 
-  await request(`/api/categories/${categoryId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
-  });
+  if (action === "rename") {
+    if (!name) throw new Error("目录名称不能为空");
+    await request(`/api/categories/${categoryId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    el("categoryActionName").value = "";
+    toast("目录已重命名");
+    await Promise.all([loadCategories(), loadProducts(), loadMaterialProducts()]);
+    return;
+  }
 
-  el("renameCategoryName").value = "";
-  toast("目录已重命名");
-  await Promise.all([loadCategories(), loadProducts(), loadMaterialProducts()]);
-  updateCategorySelectionHint();
-}
-
-async function deleteCategory() {
-  const categoryId = el("manageCategoryId").value;
-  if (!categoryId) throw new Error("请选择目录");
   if (!window.confirm("确认删除该目录？")) return;
-
   await request(`/api/categories/${categoryId}`, { method: "DELETE" });
+  state.expandedCategoryIds.delete(categoryId);
+  state.selectedTreeCategoryId = null;
   toast("目录已删除");
   await Promise.all([loadCategories(), loadProducts(), loadStats(), loadMaterialProducts()]);
-  updateCategorySelectionHint();
 }
 
 async function saveProduct() {
@@ -788,23 +783,12 @@ async function uploadImage() {
 }
 
 function bindEvents() {
-  el("createCategoryBtn").addEventListener("click", () =>
-    createCategory().catch((err) => toast(err.message))
+  el("applyCategoryActionBtn").addEventListener("click", () =>
+    applyCategoryAction().catch((err) => toast(err.message))
   );
-  el("renameCategoryBtn").addEventListener("click", () =>
-    renameCategory().catch((err) => toast(err.message))
-  );
-  el("deleteCategoryBtn").addEventListener("click", () =>
-    deleteCategory().catch((err) => toast(err.message))
-  );
-  el("manageCategoryId").addEventListener("change", () => {
-    const selectedValue = el("manageCategoryId").value;
-    state.selectedTreeCategoryId = selectedValue ? Number(selectedValue) : null;
-    if (selectedValue) {
-      el("newCategoryParent").value = selectedValue;
-    }
-    updateCategorySelectionHint();
-    renderCategoryTree();
+  el("categoryActionName").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    applyCategoryAction().catch((err) => toast(err.message));
   });
   document.querySelectorAll("[data-category-action]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -896,7 +880,6 @@ function bindEvents() {
 async function bootstrap() {
   bindEvents();
   setCategoryAction("add");
-  updateCategorySelectionHint();
   initSideNavigation();
   resetProductForm();
   resetMaterialPanels();
