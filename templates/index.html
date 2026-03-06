@@ -144,6 +144,22 @@
             <label for="productGrossWeight">总重量</label>
             <input id="productGrossWeight" type="text" placeholder="如 12kg" />
           </div>
+          <div class="row">
+            <label>图片上传</label>
+            <label class="checkbox">
+              <input id="productShowImagesToggle" type="checkbox" />
+              勾选后显示图片上传区
+            </label>
+          </div>
+          <div id="productImagePanel" class="product-image-panel">
+            <div id="imageGroup">
+              <div class="button-row">
+                <input id="imageFile" type="file" accept="image/*" />
+                <button id="uploadImageBtn">上传图片</button>
+              </div>
+              <div id="imageList" class="image-list"></div>
+            </div>
+          </div>
           <div class="button-row">
             <button id="saveProductBtn">保存</button>
             <button id="resetProductBtn">清空</button>
@@ -152,13 +168,7 @@
 
         <section class="card content-page" id="page-product-images">
           <h2>产品图片</h2>
-          <div id="imageGroup">
-            <div class="button-row">
-              <input id="imageFile" type="file" accept="image/*" />
-              <button id="uploadImageBtn">上传图片</button>
-            </div>
-            <div id="imageList" class="image-list"></div>
-          </div>
+          <div class="hint">图片上传已集成到“新增/编辑产品”页面中，可通过勾选项显示。</div>
         </section>
 
         <section class="card content-page" id="page-material-params">

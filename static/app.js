@@ -438,8 +438,16 @@ function resetProductForm() {
   el("productPackageSize").value = "";
   el("productGrossWeight").value = "";
   el("productFormTitle").textContent = "新增产品";
+  el("productShowImagesToggle").checked = false;
+  setProductImagePanelVisible(false);
   el("imageFile").value = "";
   el("imageList").innerHTML = '<div class="hint">请先选择或保存一个产品后上传图片。</div>';
+}
+
+function setProductImagePanelVisible(show) {
+  const panel = el("productImagePanel");
+  if (!panel) return;
+  panel.classList.toggle("show", Boolean(show));
 }
 
 function resetMaterialPanels() {
@@ -836,6 +844,9 @@ async function uploadImage() {
 }
 
 function bindEvents() {
+  el("productShowImagesToggle").addEventListener("change", () => {
+    setProductImagePanelVisible(el("productShowImagesToggle").checked);
+  });
   el("editSelectedProductBtn").addEventListener("click", () =>
     editSelectedTreeProduct().catch((err) => toast(err.message))
   );
@@ -938,6 +949,7 @@ async function bootstrap() {
   setCategoryAction("add");
   initSideNavigation();
   resetProductForm();
+  setProductImagePanelVisible(false);
   resetMaterialPanels();
   el("quoteDate").value = new Date().toISOString().slice(0, 10);
 
