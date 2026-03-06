@@ -200,21 +200,61 @@ function setCategoryAction(action) {
   document.querySelectorAll("[data-category-action='rename'], [data-category-action='delete']").forEach((button) => {
     button.disabled = !hasSelectedCategory;
   });
+}
 
-  const actionButton = el("applyCategoryActionBtn");
-  if (actionButton) {
-    actionButton.classList.remove("danger");
-    if (finalAction === "delete") {
-      actionButton.classList.add("danger");
-    }
-
-    const labelMap = {
-      add: "新增目录",
-      rename: "修改目录",
-      delete: "删除目录",
-    };
-    actionButton.textContent = labelMap[finalAction] || "执行";
+function openCategoryActionModal(action) {
+  if (!state.selectedTreeCategoryId) {
+    toast("请先在目录树选择类型");
+    return;
   }
+
+  setCategoryAction(action);
+  const modal = el("categoryActionModal");
+  const title = el("categoryActionModalTitle");
+  const target = el("categoryActionModalTarget");
+  const inputRow = el("categoryActionInputRow");
+  const input = el("categoryActionInput");
+  const confirmBtn = el("categoryActionConfirmBtn");
+  const current = state.categories.find((item) => item.id === state.selectedTreeCategoryId);
+  const currentName = current?.name || `目录 #${state.selectedTreeCategoryId}`;
+
+  if (state.categoryAction === "delete") {
+    title.textContent = "删除目录";
+    target.textContent = `将删除：${currentName}`;
+    inputRow.style.display = "none";
+    input.value = "";
+    confirmBtn.textContent = "确认删除";
+    confirmBtn.classList.add("danger");
+  } else if (state.categoryAction === "rename") {
+    title.textContent = "修改目录";
+    target.textContent = `当前目录：${currentName}`;
+    inputRow.style.display = "";
+    input.value = current?.name || "";
+    input.placeholder = "请输入新目录名称";
+    confirmBtn.textContent = "确认修改";
+    confirmBtn.classList.remove("danger");
+    window.setTimeout(() => input.focus(), 0);
+  } else {
+    title.textContent = "新增目录";
+    target.textContent = `父级目录：${currentName}`;
+    inputRow.style.display = "";
+    input.value = "";
+    input.placeholder = "请输入新目录名称";
+    confirmBtn.textContent = "确认新增";
+    confirmBtn.classList.remove("danger");
+    window.setTimeout(() => input.focus(), 0);
+  }
+
+  modal.classList.add("show");
+}
+
+function closeCategoryActionModal() {
+  el("categoryActionModal").classList.remove("show");
+}
+
+async function confirmCategoryActionFromModal() {
+  await applyCategoryAction();
+  closeCategoryActionModal();
 }
 
 function renderCategoryTree() {
@@ -798,13 +838,13 @@ async function loadProductDetail(id) {
 async function applyCategoryAction() {
   const action = state.categoryAction;
   const categoryId = state.selectedTreeCategoryId;
+  const name = (el("categoryActionInput")?.value || "").trim();
 
   if (!categoryId) {
     throw new Error("请先在目录树选择类型");
   }
 
   if (action === "add") {
-    const name = (window.prompt("请输入新目录名称") || "").trim();
     if (!name) throw new Error("目录名称不能为空");
     const created = await request("/api/categories", {
       method: "POST",
@@ -821,8 +861,6 @@ async function applyCategoryAction() {
   }
 
   if (action === "rename") {
-    const current = state.categories.find((item) => item.id === categoryId);
-    const name = (window.prompt("请输入新目录名称", current?.name || "") || "").trim();
     if (!name) throw new Error("目录名称不能为空");
     await request(`/api/categories/${categoryId}`, {
       method: "PUT",
@@ -834,7 +872,6 @@ async function applyCategoryAction() {
     return;
   }
 
-  if (!window.confirm("确认删除该目录？")) return;
   await request(`/api/categories/${categoryId}`, { method: "DELETE" });
   state.expandedCategoryIds.delete(categoryId);
   state.selectedTreeCategoryId = null;
@@ -909,13 +946,23 @@ function bindEvents() {
   el("editSelectedProductBtn").addEventListener("click", () =>
     editSelectedTreeProduct().catch((err) => toast(err.message))
   );
-  el("applyCategoryActionBtn").addEventListener("click", () =>
-    applyCategoryAction().catch((err) => toast(err.message))
+  el("categoryActionConfirmBtn").addEventListener("click", () =>
+    confirmCategoryActionFromModal().catch((err) => toast(err.message))
   );
+  el("categoryActionCancelBtn").addEventListener("click", closeCategoryActionModal);
+  el("categoryActionModal").addEventListener("click", (event) => {
+    if (event.target === el("categoryActionModal")) {
+      closeCategoryActionModal();
+    }
+  });
+  el("categoryActionInput").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    confirmCategoryActionFromModal().catch((err) => toast(err.message));
+  });
   document.querySelectorAll("[data-category-action]").forEach((button) => {
     button.addEventListener("click", () => {
       if (button.disabled) return;
-      setCategoryAction(button.dataset.categoryAction || "add");
+      openCategoryActionModal(button.dataset.categoryAction || "add");
     });
   });
 

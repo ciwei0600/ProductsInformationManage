@@ -50,7 +50,6 @@
               </div>
               <div class="button-row">
                 <button type="button" id="editSelectedProductBtn" disabled>修改选中产品</button>
-                <button id="applyCategoryActionBtn">新增目录</button>
               </div>
             </div>
 
@@ -309,6 +308,20 @@
     </main>
 
     <div id="toast" class="toast"></div>
+    <div id="categoryActionModal" class="category-action-modal">
+      <div class="category-action-dialog">
+        <h3 id="categoryActionModalTitle">目录操作</h3>
+        <div id="categoryActionModalTarget" class="hint"></div>
+        <div id="categoryActionInputRow" class="row mt12">
+          <label for="categoryActionInput">名称</label>
+          <input id="categoryActionInput" type="text" placeholder="目录名称" />
+        </div>
+        <div class="button-row mt12">
+          <button id="categoryActionConfirmBtn">确认</button>
+          <button id="categoryActionCancelBtn" class="ghost" type="button">取消</button>
+        </div>
+      </div>
+    </div>
 
     <script src="{{ url_for('static', filename='app.js') }}"></script>
   </body>

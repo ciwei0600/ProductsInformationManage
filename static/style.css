@@ -182,6 +182,12 @@ button.danger {
   background: var(--danger);
 }
 
+button.ghost {
+  border-color: var(--line);
+  background: #fff;
+  color: var(--text);
+}
+
 .button-row {
   display: flex;
   gap: 8px;
@@ -623,6 +629,45 @@ td {
 .toast.show {
   opacity: 0.95;
   transform: translateY(0);
+}
+
+.category-action-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+  z-index: 30;
+}
+
+.category-action-modal.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.category-action-dialog {
+  width: min(520px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  transform: translateY(16px) scale(0.98);
+  transition: transform 0.18s ease;
+}
+
+.category-action-modal.show .category-action-dialog {
+  transform: translateY(0) scale(1);
+}
+
+.category-action-dialog h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
 }
 
 @media (max-width: 1080px) {
