@@ -5,6 +5,7 @@ const state = {
   pageSize: 20,
   total: 0,
   selectedTreeCategoryId: null,
+  selectedTreeProductId: null,
   expandedCategoryIds: new Set(),
   categoryAction: "add",
   materialProducts: [],
@@ -264,8 +265,9 @@ function renderCategoryTree() {
             const imageBlock = product.first_image
               ? `<img class="tree-product-thumb" src="/media/${product.first_image}" alt="${name}" />`
               : '<div class="tree-product-no-image">无图</div>';
+            const activeProduct = state.selectedTreeProductId === product.id ? "active" : "";
             return `
-            <li class="tree-product-item">
+            <li class="tree-product-item ${activeProduct}" data-product-id="${product.id}">
               <div class="tree-product-main">
                 <div class="tree-product-media">
                   ${imageBlock}
@@ -309,6 +311,16 @@ function renderCategoryTree() {
           state.expandedCategoryIds.add(id);
         }
       }
+      renderCategoryTree();
+    });
+  });
+
+  container.querySelectorAll(".tree-product-item[data-product-id]").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const productId = Number(item.dataset.productId);
+      if (!productId) return;
+      state.selectedTreeProductId = productId;
       renderCategoryTree();
     });
   });
@@ -363,6 +375,9 @@ function renderProducts(items) {
       if (!window.confirm("确认删除该产品？")) return;
       await request(`/api/products/${id}`, { method: "DELETE" });
       toast("产品已删除");
+      if (state.selectedTreeProductId === id) {
+        state.selectedTreeProductId = null;
+      }
       if (String(el("productId").value) === String(id)) {
         resetProductForm();
       }
@@ -558,9 +573,23 @@ async function refreshMaterialPackagingByFilter() {
 
 async function loadMaterialProducts() {
   state.materialProducts = await fetchAllProducts();
+  if (
+    state.selectedTreeProductId &&
+    !state.materialProducts.some((product) => product.id === state.selectedTreeProductId)
+  ) {
+    state.selectedTreeProductId = null;
+  }
   refreshMaterialSelectors();
   await refreshMaterialPackagingByFilter();
   renderCategoryTree();
+}
+
+async function editSelectedTreeProduct() {
+  const productId = Number(state.selectedTreeProductId);
+  if (!productId) {
+    throw new Error("请先在目录树中选中产品");
+  }
+  await loadProductDetail(productId);
 }
 
 function calculateFlowPerHour() {
@@ -807,6 +836,9 @@ async function uploadImage() {
 }
 
 function bindEvents() {
+  el("editSelectedProductBtn").addEventListener("click", () =>
+    editSelectedTreeProduct().catch((err) => toast(err.message))
+  );
   el("applyCategoryActionBtn").addEventListener("click", () =>
     applyCategoryAction().catch((err) => toast(err.message))
   );

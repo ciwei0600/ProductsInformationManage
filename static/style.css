@@ -305,6 +305,18 @@ button.danger {
   color: #334155;
   font-size: 13px;
   background: #ffffff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.tree-product-item:hover {
+  border-left-color: #7ccfc8;
+  background: #f8fcfc;
+}
+
+.tree-product-item.active {
+  border-left-color: #0f766e;
+  background: #e9f8f6;
 }
 
 .tree-product-main {
