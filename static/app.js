@@ -27,6 +27,50 @@ async function request(url, options = {}) {
   return data;
 }
 
+function setActiveNav(sectionId) {
+  document.querySelectorAll(".nav-level2[data-section]").forEach((link) => {
+    link.classList.toggle("active", link.dataset.section === sectionId);
+  });
+}
+
+function initSideNavigation() {
+  const links = [...document.querySelectorAll(".nav-level2[data-section]")];
+  if (!links.length) return;
+
+  links.forEach((link) => {
+    link.addEventListener("click", () => {
+      setActiveNav(link.dataset.section || "");
+    });
+  });
+
+  const syncFromHash = () => {
+    const hash = window.location.hash.replace("#", "");
+    if (!hash) return;
+    const matched = links.find((link) => link.dataset.section === hash);
+    if (matched) setActiveNav(hash);
+  };
+
+  window.addEventListener("hashchange", syncFromHash);
+  syncFromHash();
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (visible && visible.target && visible.target.id) {
+        setActiveNav(visible.target.id);
+      }
+    },
+    { root: null, rootMargin: "-20% 0px -68% 0px", threshold: [0.05, 0.2, 0.4] }
+  );
+
+  links.forEach((link) => {
+    const target = document.getElementById(link.dataset.section || "");
+    if (target) observer.observe(target);
+  });
+}
+
 function categoryPathMap() {
   const byId = new Map();
   const children = new Map();
@@ -219,8 +263,8 @@ function resetProductForm() {
   el("productPackageSize").value = "";
   el("productGrossWeight").value = "";
   el("productFormTitle").textContent = "新增产品";
-  el("imageGroup").style.display = "none";
-  el("imageList").innerHTML = "";
+  el("imageFile").value = "";
+  el("imageList").innerHTML = '<div class="hint">请先选择或保存一个产品后上传图片。</div>';
 }
 
 async function loadStats() {
@@ -276,7 +320,6 @@ async function loadProductDetail(id) {
   el("productGrossWeight").value = product.gross_weight || "";
   el("productFormTitle").textContent = `编辑产品 #${product.id}`;
 
-  el("imageGroup").style.display = "block";
   renderProductImages(data.images || []);
 }
 
@@ -468,6 +511,8 @@ function bindEvents() {
 
 async function bootstrap() {
   bindEvents();
+  initSideNavigation();
+  resetProductForm();
   await Promise.all([loadCategories(), loadStats()]);
   await loadProducts();
 }
