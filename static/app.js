@@ -1367,14 +1367,6 @@ function bindEvents() {
     saveRawMaterial().catch((err) => toast(err.message))
   );
   el("cancelRawMaterialEditBtn").addEventListener("click", () => resetRawMaterialForm());
-  el("rawMaterialName").addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    saveRawMaterial().catch((err) => toast(err.message));
-  });
-  el("rawMaterialPrice").addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    saveRawMaterial().catch((err) => toast(err.message));
-  });
   el("materialPackageKeyword").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       refreshMaterialPackagingByFilter().catch((err) => toast(err.message));
