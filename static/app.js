@@ -38,20 +38,15 @@ function parseFirstNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function extractUnit(value, defaultUnit = "") {
-  const text = String(value || "").trim();
-  if (!text) return defaultUnit;
-  const unit = text.replace(/-?\d+(?:\.\d+)?/g, "").trim();
-  return unit || defaultUnit;
-}
-
 function toMoney(value) {
   if (!Number.isFinite(value)) return "-";
   return value.toFixed(2);
 }
 
 function setText(id, value) {
-  el(id).textContent = value;
+  const node = el(id);
+  if (!node) return;
+  node.textContent = value;
 }
 
 function productDisplayName(product) {
@@ -392,12 +387,7 @@ function resetProductForm() {
 }
 
 function resetMaterialPanels() {
-  setText("paramCode", "-");
-  setText("paramName", "-");
-  setText("paramSprayArea", "-");
-  setText("paramNetWeight", "-");
-  setText("paramPerPackageQty", "-");
-  setText("paramPackageCount", "-");
+  setText("flowPerHour", "-");
 
   setText("costPackageCount", "-");
   setText("costSubtotal", "-");
@@ -513,7 +503,6 @@ function renderMaterialPackageTable(items) {
 }
 
 function refreshMaterialSelectors() {
-  fillMaterialProductSelect("materialParamProduct");
   fillMaterialProductSelect("materialCostProduct");
   fillMaterialProductSelect("quoteProduct");
 }
@@ -537,44 +526,14 @@ async function loadMaterialProducts() {
   await refreshMaterialPackagingByFilter();
 }
 
-function calculateMaterialParams() {
-  const product = getMaterialProductById(el("materialParamProduct").value);
-  if (!product) {
-    throw new Error("请选择产品");
+function calculateFlowPerHour() {
+  const diameter = Number(el("flowDiameter").value);
+  if (!Number.isFinite(diameter) || diameter <= 0) {
+    throw new Error("出水孔径必须大于 0");
   }
 
-  const quantity = Number(el("materialParamQuantity").value);
-  if (!Number.isFinite(quantity) || quantity <= 0) {
-    throw new Error("数量必须大于 0");
-  }
-
-  const packageQty = parseFirstNumber(product.package_quantity);
-  const unitWeight = parseFirstNumber(product.unit_weight);
-  const radius = parseFirstNumber(product.spray_radius);
-
-  setText("paramCode", product.code || "-");
-  setText("paramName", product.chinese_name || product.name || "-");
-  setText("paramPerPackageQty", packageQty != null ? String(packageQty) : product.package_quantity || "-");
-
-  if (packageQty != null && packageQty > 0) {
-    setText("paramPackageCount", `${Math.ceil(quantity / packageQty)} 箱`);
-  } else {
-    setText("paramPackageCount", "-");
-  }
-
-  if (unitWeight != null) {
-    const weightUnit = extractUnit(product.unit_weight, "");
-    setText("paramNetWeight", `${(unitWeight * quantity).toFixed(2)}${weightUnit}`);
-  } else {
-    setText("paramNetWeight", "-");
-  }
-
-  if (radius != null && radius > 0) {
-    const area = Math.PI * radius * radius * quantity;
-    setText("paramSprayArea", `${area.toFixed(2)} m²`);
-  } else {
-    setText("paramSprayArea", "-");
-  }
+  const flow = (110 * 3.14 * diameter * diameter) / 3.14 / 1.6 / 1.6;
+  setText("flowPerHour", flow.toFixed(5));
 }
 
 function calculateMaterialCost() {
@@ -881,9 +840,9 @@ function bindEvents() {
     loadProducts().catch((err) => toast(err.message));
   });
 
-  el("calcParamBtn").addEventListener("click", () => {
+  el("calcFlowBtn").addEventListener("click", () => {
     try {
-      calculateMaterialParams();
+      calculateFlowPerHour();
     } catch (err) {
       toast(err.message);
     }

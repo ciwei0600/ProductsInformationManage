@@ -30,7 +30,7 @@
 
         <div class="nav-group">
           <div class="nav-level1">生产资料</div>
-          <a class="nav-level2" href="#page-material-params" data-page="page-material-params">参数计算</a>
+          <a class="nav-level2" href="#page-material-params" data-page="page-material-params">流量计算</a>
           <a class="nav-level2" href="#page-material-packaging" data-page="page-material-packaging">包装数据</a>
           <a class="nav-level2" href="#page-material-cost" data-page="page-material-cost">成本计算</a>
           <a class="nav-level2" href="#page-material-quote" data-page="page-material-quote">报价单</a>
@@ -203,25 +203,20 @@
         </section>
 
         <section class="card content-page" id="page-material-params">
-          <h2>参数计算</h2>
+          <h2>流量计算</h2>
           <div class="row">
-            <label for="materialParamProduct">产品</label>
-            <select id="materialParamProduct"></select>
+            <label for="flowDiameter">出水孔径（直径）</label>
+            <input id="flowDiameter" type="number" min="0" step="0.01" placeholder="如 1.8" />
           </div>
-          <div class="row">
-            <label for="materialParamQuantity">数量</label>
-            <input id="materialParamQuantity" type="number" min="1" step="1" value="1" />
-          </div>
-          <button id="calcParamBtn">计算参数</button>
+          <button id="calcFlowBtn">计算流量</button>
 
           <div class="result-grid mt12">
-            <div class="result-card"><div class="result-label">产品编号</div><div id="paramCode" class="result-value">-</div></div>
-            <div class="result-card"><div class="result-label">中文名</div><div id="paramName" class="result-value">-</div></div>
-            <div class="result-card"><div class="result-label">喷洒面积估算</div><div id="paramSprayArea" class="result-value">-</div></div>
-            <div class="result-card"><div class="result-label">净重估算</div><div id="paramNetWeight" class="result-value">-</div></div>
-            <div class="result-card"><div class="result-label">单箱数量</div><div id="paramPerPackageQty" class="result-value">-</div></div>
-            <div class="result-card"><div class="result-label">预估箱数</div><div id="paramPackageCount" class="result-value">-</div></div>
+            <div class="result-card">
+              <div class="result-label">每小时流量</div>
+              <div id="flowPerHour" class="result-value">-</div>
+            </div>
           </div>
+          <div class="hint mt12">公式：110*3.14*A^2/3.14/1.6/1.6（A=出水孔径）</div>
         </section>
 
         <section class="card content-page" id="page-material-packaging">
