@@ -559,18 +559,6 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
         raise ValueError("产品编码不能为空")
     if not chinese_name:
         raise ValueError("产品中文名不能为空")
-    if not effect:
-        raise ValueError("产品作用不能为空")
-    if not description:
-        raise ValueError("产品描述不能为空")
-    if not unit_weight:
-        raise ValueError("单个重量不能为空")
-    if not package_quantity:
-        raise ValueError("包装数量不能为空")
-    if not package_size:
-        raise ValueError("包装尺寸不能为空")
-    if not gross_weight:
-        raise ValueError("总重量不能为空")
 
     if category_id in ("", None):
         category_id = None
