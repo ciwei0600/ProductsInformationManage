@@ -345,7 +345,10 @@ function renderCategoryTree() {
                   ${imageBlock}
                 </div>
                 <div class="tree-product-info">
-                  <div class="tree-product-title">${product.code || "-"} | ${name}</div>
+                  <div class="tree-product-head">
+                    <div class="tree-product-title">${product.code || "-"} | ${name}</div>
+                    <button type="button" class="tree-product-edit-btn" data-tree-edit-id="${product.id}">修改</button>
+                  </div>
                   <div class="tree-product-grid">
                     <div>作用：${product.effect || "-"}</div>
                     <div>喷洒半径：${product.spray_radius || "-"}</div>
@@ -396,6 +399,15 @@ function renderCategoryTree() {
       state.selectedTreeProductId = productId;
       updateEditSelectedProductButtonState();
       renderCategoryTree();
+    });
+  });
+
+  container.querySelectorAll("button[data-tree-edit-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const productId = Number(button.dataset.treeEditId);
+      if (!productId) return;
+      loadProductDetail(productId).catch((err) => toast(err.message));
     });
   });
 }
@@ -1282,9 +1294,6 @@ function bindEvents() {
   el("productShowImagesToggle").addEventListener("change", () => {
     setProductImagePanelVisible(el("productShowImagesToggle").checked);
   });
-  el("editSelectedProductBtn").addEventListener("click", () =>
-    editSelectedTreeProduct().catch((err) => toast(err.message))
-  );
   el("categoryActionConfirmBtn").addEventListener("click", () =>
     confirmCategoryActionFromModal().catch((err) => toast(err.message))
   );

@@ -497,7 +497,28 @@ button.ghost {
 .tree-product-title {
   font-weight: 600;
   color: #111827;
+}
+
+.tree-product-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 6px;
+}
+
+.tree-product-edit-btn {
+  border: 1px solid #0f766e;
+  background: #ffffff;
+  color: #0f766e;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.tree-product-edit-btn:hover {
+  background: #ecfdf5;
 }
 
 .tree-product-grid {
