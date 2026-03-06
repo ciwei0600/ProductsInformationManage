@@ -18,26 +18,26 @@
 
         <div class="nav-group">
           <div class="nav-level1">数据导入</div>
-          <a class="nav-level2 active" href="#section-import" data-section="section-import">Zip 导入</a>
+          <a class="nav-level2 active" href="#page-import" data-page="page-import">Zip 导入</a>
         </div>
 
         <div class="nav-group">
           <div class="nav-level1">目录管理</div>
-          <a class="nav-level2" href="#section-category-create" data-section="section-category-create">新增目录</a>
-          <a class="nav-level2" href="#section-category-manage" data-section="section-category-manage">目录操作</a>
-          <a class="nav-level2" href="#section-category-tree" data-section="section-category-tree">目录树</a>
+          <a class="nav-level2" href="#page-category-create" data-page="page-category-create">新增目录</a>
+          <a class="nav-level2" href="#page-category-manage" data-page="page-category-manage">目录操作</a>
+          <a class="nav-level2" href="#page-category-tree" data-page="page-category-tree">目录树</a>
         </div>
 
         <div class="nav-group">
           <div class="nav-level1">产品管理</div>
-          <a class="nav-level2" href="#section-product-list" data-section="section-product-list">筛选与列表</a>
-          <a class="nav-level2" href="#section-product-form" data-section="section-product-form">新增/编辑产品</a>
-          <a class="nav-level2" href="#section-product-images" data-section="section-product-images">产品图片</a>
+          <a class="nav-level2" href="#page-product-list" data-page="page-product-list">筛选与列表</a>
+          <a class="nav-level2" href="#page-product-form" data-page="page-product-form">新增/编辑产品</a>
+          <a class="nav-level2" href="#page-product-images" data-page="page-product-images">产品图片</a>
         </div>
       </aside>
 
       <section class="content-column">
-        <section class="card content-section" id="section-import">
+        <section class="card content-page active" id="page-import">
           <h2>Zip 导入</h2>
           <div class="row">
             <label for="zipPath">Zip 路径</label>
@@ -53,7 +53,7 @@
           <div id="importResult" class="hint"></div>
         </section>
 
-        <section class="card content-section" id="section-category-create">
+        <section class="card content-page" id="page-category-create">
           <h2>新增目录</h2>
           <div class="row">
             <label for="newCategoryName">名称</label>
@@ -66,7 +66,7 @@
           <button id="createCategoryBtn">新增目录</button>
         </section>
 
-        <section class="card content-section" id="section-category-manage">
+        <section class="card content-page" id="page-category-manage">
           <h2>目录操作</h2>
           <div class="row">
             <label for="manageCategoryId">目录</label>
@@ -82,12 +82,12 @@
           </div>
         </section>
 
-        <section class="card content-section" id="section-category-tree">
+        <section class="card content-page" id="page-category-tree">
           <h2>目录树</h2>
           <ul id="categoryTree" class="tree"></ul>
         </section>
 
-        <section class="card content-section" id="section-product-list">
+        <section class="card content-page" id="page-product-list">
           <h2>产品筛选与列表</h2>
           <div class="filter-grid">
             <input id="searchKeyword" type="text" placeholder="按编号/中文名/作用/描述搜索" />
@@ -123,7 +123,7 @@
           </div>
         </section>
 
-        <section class="card content-section" id="section-product-form">
+        <section class="card content-page" id="page-product-form">
           <h2 id="productFormTitle">新增产品</h2>
           <input id="productId" type="hidden" />
           <div class="row">
@@ -172,7 +172,7 @@
           </div>
         </section>
 
-        <section class="card content-section" id="section-product-images">
+        <section class="card content-page" id="page-product-images">
           <h2>产品图片</h2>
           <div id="imageGroup">
             <div class="button-row">

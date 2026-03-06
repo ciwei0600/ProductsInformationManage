@@ -27,48 +27,45 @@ async function request(url, options = {}) {
   return data;
 }
 
-function setActiveNav(sectionId) {
-  document.querySelectorAll(".nav-level2[data-section]").forEach((link) => {
-    link.classList.toggle("active", link.dataset.section === sectionId);
+function setActivePage(pageId, updateHash = true) {
+  const target = document.getElementById(pageId);
+  if (!target) return;
+
+  document.querySelectorAll(".nav-level2[data-page]").forEach((link) => {
+    link.classList.toggle("active", link.dataset.page === pageId);
   });
+  document.querySelectorAll(".content-page").forEach((page) => {
+    page.classList.toggle("active", page.id === pageId);
+  });
+
+  if (updateHash && window.location.hash !== `#${pageId}`) {
+    window.history.replaceState(null, "", `#${pageId}`);
+  }
 }
 
 function initSideNavigation() {
-  const links = [...document.querySelectorAll(".nav-level2[data-section]")];
+  const links = [...document.querySelectorAll(".nav-level2[data-page]")];
   if (!links.length) return;
 
   links.forEach((link) => {
-    link.addEventListener("click", () => {
-      setActiveNav(link.dataset.section || "");
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      setActivePage(link.dataset.page || "page-import");
     });
   });
 
-  const syncFromHash = () => {
+  const applyByHash = () => {
     const hash = window.location.hash.replace("#", "");
-    if (!hash) return;
-    const matched = links.find((link) => link.dataset.section === hash);
-    if (matched) setActiveNav(hash);
+    const matched = links.find((link) => link.dataset.page === hash);
+    if (matched) {
+      setActivePage(hash, false);
+      return;
+    }
+    setActivePage(links[0].dataset.page || "page-import", false);
   };
 
-  window.addEventListener("hashchange", syncFromHash);
-  syncFromHash();
-
-  const observer = new IntersectionObserver(
-    (entries) => {
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-      if (visible && visible.target && visible.target.id) {
-        setActiveNav(visible.target.id);
-      }
-    },
-    { root: null, rootMargin: "-20% 0px -68% 0px", threshold: [0.05, 0.2, 0.4] }
-  );
-
-  links.forEach((link) => {
-    const target = document.getElementById(link.dataset.section || "");
-    if (target) observer.observe(target);
-  });
+  window.addEventListener("hashchange", applyByHash);
+  applyByHash();
 }
 
 function categoryPathMap() {
@@ -306,6 +303,7 @@ async function loadProducts() {
 async function loadProductDetail(id) {
   const data = await request(`/api/products/${id}`);
   const product = data.product;
+  setActivePage("page-product-form", true);
 
   el("productId").value = String(product.id);
   el("productCode").value = product.code || "";

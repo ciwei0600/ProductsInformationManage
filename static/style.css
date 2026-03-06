@@ -107,12 +107,27 @@ body {
 }
 
 .content-column {
-  display: grid;
-  gap: var(--space-md);
+  min-height: calc(100vh - 120px);
 }
 
-.content-section {
-  scroll-margin-top: 80px;
+.content-page {
+  display: none;
+}
+
+.content-page.active {
+  display: block;
+  animation: pageFade 0.18s ease;
+}
+
+@keyframes pageFade {
+  from {
+    opacity: 0.45;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 h2 {
