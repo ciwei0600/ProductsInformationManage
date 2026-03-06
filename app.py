@@ -129,17 +129,18 @@ def create_app() -> Flask:
         if exists is None:
             return jsonify({"error": "目录不存在"}), 404
 
-        child_count = conn.execute(
-            "SELECT COUNT(*) FROM categories WHERE parent_id = ?", (category_id,)
-        ).fetchone()[0]
-        if child_count > 0:
-            return jsonify({"error": "请先删除子目录"}), 400
+        subtree_ids = get_descendant_category_ids(conn, category_id)
+        placeholders = ",".join("?" for _ in subtree_ids)
 
         product_count = conn.execute(
-            "SELECT COUNT(*) FROM products WHERE category_id = ?", (category_id,)
+            f"SELECT COUNT(*) FROM products WHERE category_id IN ({placeholders})",
+            subtree_ids,
         ).fetchone()[0]
         if product_count > 0:
-            return jsonify({"error": "目录下还有产品，无法删除"}), 400
+            return jsonify({"error": "目录下有产品，只有空目录才能删除"}), 400
+
+        if len(subtree_ids) > 1:
+            return jsonify({"error": "目录下有子目录，只有空目录才能删除"}), 400
 
         conn.execute("DELETE FROM categories WHERE id = ?", (category_id,))
         conn.commit()
