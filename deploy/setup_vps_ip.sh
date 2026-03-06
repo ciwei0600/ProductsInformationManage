@@ -18,6 +18,7 @@ GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-}"
 APP_SERVICE_NAME="${APP_SERVICE_NAME:-products-information-manage.service}"
 HOOK_SERVICE_NAME="${HOOK_SERVICE_NAME:-products-information-manage-hook.service}"
 NGINX_SITE_NAME="${NGINX_SITE_NAME:-products-information-manage.conf}"
+APP_HOST_PRIMARY="${APP_HOST%% *}"
 
 run_as_app() {
   sudo -u "$APP_USER" -H bash -lc "$*"
@@ -27,15 +28,28 @@ info() {
   printf "\n[%s] %s\n" "$(date '+%H:%M:%S')" "$*"
 }
 
-check_nginx_conflicts() {
-  local server_conflicts webhook_conflicts default_count
-
-  server_conflicts="$(grep -R "server_name" -n /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/nginx/sites-available 2>/dev/null | grep -F "$APP_HOST" | grep -v "$NGINX_SITE_NAME" || true)"
-  if [ -n "$server_conflicts" ]; then
-    echo "发现 server_name 冲突（$APP_HOST）:" >&2
-    echo "$server_conflicts" >&2
-    exit 1
+upsert_kv() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  if grep -q "^${key}=" "$file"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+  else
+    echo "${key}=${value}" >>"$file"
   fi
+}
+
+check_nginx_conflicts() {
+  local server_conflicts webhook_conflicts default_count host
+
+  for host in $APP_HOST; do
+    server_conflicts="$(grep -R "server_name" -n /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/nginx/sites-available 2>/dev/null | grep -F "$host" | grep -v "$NGINX_SITE_NAME" || true)"
+    if [ -n "$server_conflicts" ]; then
+      echo "发现 server_name 冲突（$host）:" >&2
+      echo "$server_conflicts" >&2
+      exit 1
+    fi
+  done
 
   webhook_conflicts="$(grep -R "/github-webhook" -n /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/nginx/sites-available 2>/dev/null | grep -F "$HOOK_PATH" | grep -v "$NGINX_SITE_NAME" || true)"
   if [ -n "$webhook_conflicts" ]; then
@@ -110,41 +124,29 @@ else
   GIT_SSH_COMMAND_QUOTED=""
 fi
 
-run_as_app "bash -lc '
-  set -euo pipefail
-  upsert_kv() {
-    local file="\$1" key="\$2" value="\$3"
-    if grep -q "^\${key}=" "\$file"; then
-      sed -i "s|^\${key}=.*|\${key}=\${value}|" "\$file"
-    else
-      echo "\${key}=\${value}" >>"\$file"
-    fi
-  }
+upsert_kv "$APP_ENV_FILE" APP_PORT "$APP_PORT"
+upsert_kv "$APP_ENV_FILE" PORT "8080"
+upsert_kv "$APP_ENV_FILE" COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME"
 
-  upsert_kv "$APP_ENV_FILE" APP_PORT "$APP_PORT"
-  upsert_kv "$APP_ENV_FILE" PORT "8080"
-  upsert_kv "$APP_ENV_FILE" COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME"
-
-  upsert_kv "$HOOK_ENV_FILE" DEPLOY_HOOK_HOST "127.0.0.1"
-  upsert_kv "$HOOK_ENV_FILE" DEPLOY_HOOK_PORT "$HOOK_PORT"
-  upsert_kv "$HOOK_ENV_FILE" DEPLOY_HOOK_PATH "$HOOK_PATH"
-  upsert_kv "$HOOK_ENV_FILE" DEPLOY_HOOK_SECRET "$DEPLOY_HOOK_SECRET"
-  upsert_kv "$HOOK_ENV_FILE" DEPLOY_REPO "$REPO_FULL_NAME"
-  upsert_kv "$HOOK_ENV_FILE" DEPLOY_BRANCH "refs/heads/$BRANCH"
-  upsert_kv "$HOOK_ENV_FILE" DEPLOY_SCRIPT "$APP_DIR/deploy/deploy.sh"
-  upsert_kv "$HOOK_ENV_FILE" DEPLOY_LOG "/var/log/products-information-manage/deploy-hook.log"
-  upsert_kv "$HOOK_ENV_FILE" PROJECT_DIR "$APP_DIR"
-  upsert_kv "$HOOK_ENV_FILE" BRANCH "$BRANCH"
-  upsert_kv "$HOOK_ENV_FILE" COMPOSE_FILE "$APP_DIR/docker-compose.yml"
-  upsert_kv "$HOOK_ENV_FILE" COMPOSE_ENV_FILE "$APP_DIR/deploy/app.env"
-  upsert_kv "$HOOK_ENV_FILE" COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME"
-  upsert_kv "$HOOK_ENV_FILE" SERVICE_NAME "$SERVICE_NAME"
-  upsert_kv "$HOOK_ENV_FILE" DOCKER_BIN "/usr/bin/docker"
-  if [ -n "$GIT_SSH_COMMAND_QUOTED" ]; then
-    upsert_kv "$HOOK_ENV_FILE" GIT_SSH_COMMAND "$GIT_SSH_COMMAND_QUOTED"
-  fi
-  chmod 600 "$APP_ENV_FILE" "$HOOK_ENV_FILE"
-'"
+upsert_kv "$HOOK_ENV_FILE" DEPLOY_HOOK_HOST "127.0.0.1"
+upsert_kv "$HOOK_ENV_FILE" DEPLOY_HOOK_PORT "$HOOK_PORT"
+upsert_kv "$HOOK_ENV_FILE" DEPLOY_HOOK_PATH "$HOOK_PATH"
+upsert_kv "$HOOK_ENV_FILE" DEPLOY_HOOK_SECRET "$DEPLOY_HOOK_SECRET"
+upsert_kv "$HOOK_ENV_FILE" DEPLOY_REPO "$REPO_FULL_NAME"
+upsert_kv "$HOOK_ENV_FILE" DEPLOY_BRANCH "refs/heads/$BRANCH"
+upsert_kv "$HOOK_ENV_FILE" DEPLOY_SCRIPT "$APP_DIR/deploy/deploy.sh"
+upsert_kv "$HOOK_ENV_FILE" DEPLOY_LOG "/var/log/products-information-manage/deploy-hook.log"
+upsert_kv "$HOOK_ENV_FILE" PROJECT_DIR "$APP_DIR"
+upsert_kv "$HOOK_ENV_FILE" BRANCH "$BRANCH"
+upsert_kv "$HOOK_ENV_FILE" COMPOSE_FILE "$APP_DIR/docker-compose.yml"
+upsert_kv "$HOOK_ENV_FILE" COMPOSE_ENV_FILE "$APP_DIR/deploy/app.env"
+upsert_kv "$HOOK_ENV_FILE" COMPOSE_PROJECT_NAME "$COMPOSE_PROJECT_NAME"
+upsert_kv "$HOOK_ENV_FILE" SERVICE_NAME "$SERVICE_NAME"
+upsert_kv "$HOOK_ENV_FILE" DOCKER_BIN "/usr/bin/docker"
+if [ -n "$GIT_SSH_COMMAND_QUOTED" ]; then
+  upsert_kv "$HOOK_ENV_FILE" GIT_SSH_COMMAND "$GIT_SSH_COMMAND_QUOTED"
+fi
+chmod 600 "$APP_ENV_FILE" "$HOOK_ENV_FILE"
 
 info "6/9 检查 Nginx 路由冲突"
 check_nginx_conflicts
@@ -195,8 +197,8 @@ run_as_app "cd '$APP_DIR' && set -a && . deploy/hook.env && set +a && bash deplo
 
 echo
 echo "================ 完成 ================"
-echo "App URL:       http://$APP_HOST/"
-echo "Webhook URL:   http://$APP_HOST$HOOK_PATH"
+echo "App URL:       http://$APP_HOST_PRIMARY/"
+echo "Webhook URL:   http://$APP_HOST_PRIMARY$HOOK_PATH"
 echo "Webhook Secret: $DEPLOY_HOOK_SECRET"
 echo
 echo "状态检查:"
