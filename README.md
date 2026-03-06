@@ -5,7 +5,6 @@
 - 产品目录管理（新增、重命名、删除、树形展示）
 - 产品管理（新增、编辑、删除、目录筛选、关键词搜索）
 - 产品图片管理（上传、删除、预览）
-- 从 `目录图片.zip` 一键导入目录/产品/图片
 
 产品字段包含：产品编号、中文名、作用、描述、喷洒半径（可选）、单个重量、包装数量、包装尺寸、总重量。
 
@@ -27,30 +26,21 @@ python app.py
 PORT=5055 python app.py
 ```
 
-## 2. 导入当前目录 zip
+## 2. API 示例（curl）
 
-在页面顶部 `Zip 导入` 区域：
-
-- Zip 路径填 `目录图片.zip`（默认已填写）
-- 点击 `导入`
-
-如果要覆盖重建，勾选 `清空现有数据后导入`。
-
-## 3. API 示例（curl）
-
-### 3.1 健康检查
+### 2.1 健康检查
 
 ```bash
 curl http://127.0.0.1:5000/api/health
 ```
 
-### 3.2 查询目录
+### 2.2 查询目录
 
 ```bash
 curl http://127.0.0.1:5000/api/categories
 ```
 
-### 3.3 新增目录
+### 2.3 新增目录
 
 ```bash
 curl -X POST http://127.0.0.1:5000/api/categories \
@@ -58,13 +48,13 @@ curl -X POST http://127.0.0.1:5000/api/categories \
   -d '{"name":"测试目录","parent_id":null}'
 ```
 
-### 3.4 查询产品
+### 2.4 查询产品
 
 ```bash
 curl 'http://127.0.0.1:5000/api/products?page=1&page_size=20&q=SQ1001'
 ```
 
-### 3.5 新增产品
+### 2.5 新增产品
 
 ```bash
 curl -X POST http://127.0.0.1:5000/api/products \
@@ -83,15 +73,7 @@ curl -X POST http://127.0.0.1:5000/api/products \
   }'
 ```
 
-### 3.6 导入 zip
-
-```bash
-curl -X POST http://127.0.0.1:5000/api/import \
-  -H 'Content-Type: application/json' \
-  -d '{"zip_path":"目录图片.zip","reset":false}'
-```
-
-## 4. GitHub + Webhook VPS 部署
+## 3. GitHub + Webhook VPS 部署
 
 项目已内置与其他项目同风格的部署文件：
 
@@ -105,7 +87,7 @@ curl -X POST http://127.0.0.1:5000/api/import \
 - `deploy/products-information-manage-hook.service.example`
 - `deploy/setup_vps_ip.sh`（一键安装 Docker/Nginx/systemd/hook）
 
-### 4.1 推送到 GitHub
+### 3.1 推送到 GitHub
 
 ```bash
 cd /Users/dc/Desktop/Projects/ProductsInformationManage
@@ -117,9 +99,9 @@ git remote add origin <你的仓库URL>
 git push -u origin main
 ```
 
-说明：`目录图片.zip`、`deploy/*.env`、`data/pim.db`、`data/media/` 已在 `.gitignore` 中排除。
+说明：`deploy/*.env`、`data/pim.db`、`data/media/` 已在 `.gitignore` 中排除。
 
-### 4.2 VPS 初始化并启用 webhook 自动部署
+### 3.2 VPS 初始化并启用 webhook 自动部署
 
 在 Ubuntu 22.04+ VPS 执行（按需替换变量）：
 

@@ -50,7 +50,7 @@ function initSideNavigation() {
   links.forEach((link) => {
     link.addEventListener("click", (event) => {
       event.preventDefault();
-      setActivePage(link.dataset.page || "page-import");
+      setActivePage(link.dataset.page || links[0].dataset.page || "page-category-create");
     });
   });
 
@@ -61,7 +61,7 @@ function initSideNavigation() {
       setActivePage(hash, false);
       return;
     }
-    setActivePage(links[0].dataset.page || "page-import", false);
+    setActivePage(links[0].dataset.page || "page-category-create", false);
   };
 
   window.addEventListener("hashchange", applyByHash);
@@ -421,31 +421,6 @@ async function uploadImage() {
   await Promise.all([loadProductDetail(Number(productId)), loadProducts(), loadStats()]);
 }
 
-async function importZip() {
-  const zipPath = el("zipPath").value.trim();
-  const reset = el("importReset").checked;
-  const button = el("importBtn");
-  const resultNode = el("importResult");
-
-  button.disabled = true;
-  resultNode.textContent = "导入中，请稍候...";
-
-  try {
-    const result = await request("/api/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ zip_path: zipPath, reset }),
-    });
-
-    resultNode.textContent = `导入完成：新增目录 ${result.imported_categories}，产品 ${result.imported_products}，图片 ${result.imported_images}，跳过 ${result.skipped_files}`;
-    toast("导入完成");
-    state.page = 1;
-    await Promise.all([loadCategories(), loadProducts(), loadStats()]);
-  } finally {
-    button.disabled = false;
-  }
-}
-
 function bindEvents() {
   el("createCategoryBtn").addEventListener("click", () =>
     createCategory().catch((e) => toast(e.message))
@@ -484,13 +459,6 @@ function bindEvents() {
   el("resetProductBtn").addEventListener("click", resetProductForm);
   el("uploadImageBtn").addEventListener("click", () =>
     uploadImage().catch((e) => toast(e.message))
-  );
-
-  el("importBtn").addEventListener("click", () =>
-    importZip().catch((e) => {
-      el("importResult").textContent = e.message;
-      toast(e.message);
-    })
   );
 
   el("prevPageBtn").addEventListener("click", () => {
