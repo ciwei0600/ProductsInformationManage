@@ -717,6 +717,12 @@ td {
   font-size: 18px;
 }
 
+#categoryAddModeRow button.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: #0b5f59;
+}
+
 @media (max-width: 1080px) {
   .app-shell {
     grid-template-columns: 1fr;

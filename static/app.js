@@ -9,6 +9,7 @@ const state = {
   selectedProductMainImagePath: null,
   expandedCategoryIds: new Set(),
   categoryAction: "add",
+  categoryAddMode: "child",
   materialProducts: [],
   boomBaseItems: [],
   rawMaterials: [],
@@ -248,10 +249,33 @@ function setCategoryAction(action) {
   document.querySelectorAll("[data-category-action]").forEach((button) => {
     const active = button.dataset.categoryAction === finalAction;
     button.classList.toggle("active", active);
-  });
-  document.querySelectorAll("[data-category-action='rename'], [data-category-action='delete']").forEach((button) => {
     button.disabled = !hasSelectedCategory;
   });
+}
+
+function setCategoryAddMode(mode) {
+  state.categoryAddMode = mode === "sibling" ? "sibling" : "child";
+  const siblingBtn = el("categoryAddSiblingBtn");
+  const childBtn = el("categoryAddChildBtn");
+  if (siblingBtn) {
+    siblingBtn.classList.toggle("active", state.categoryAddMode === "sibling");
+  }
+  if (childBtn) {
+    childBtn.classList.toggle("active", state.categoryAddMode === "child");
+  }
+  updateCategoryAddTargetText();
+}
+
+function updateCategoryAddTargetText() {
+  if (state.categoryAction !== "add") return;
+  const target = el("categoryActionModalTarget");
+  const current = state.categories.find((item) => item.id === state.selectedTreeCategoryId);
+  const currentName = current?.name || `目录 #${state.selectedTreeCategoryId}`;
+  if (state.categoryAddMode === "sibling") {
+    target.textContent = `同级目录：与“${currentName}”同级`;
+    return;
+  }
+  target.textContent = `父级目录：${currentName}`;
 }
 
 function openCategoryActionModal(action) {
@@ -264,6 +288,7 @@ function openCategoryActionModal(action) {
   const modal = el("categoryActionModal");
   const title = el("categoryActionModalTitle");
   const target = el("categoryActionModalTarget");
+  const addModeRow = el("categoryAddModeRow");
   const inputRow = el("categoryActionInputRow");
   const input = el("categoryActionInput");
   const confirmBtn = el("categoryActionConfirmBtn");
@@ -273,6 +298,7 @@ function openCategoryActionModal(action) {
   if (state.categoryAction === "delete") {
     title.textContent = "删除目录";
     target.textContent = `将删除：${currentName}`;
+    addModeRow.style.display = "none";
     inputRow.style.display = "none";
     input.value = "";
     confirmBtn.textContent = "确认删除";
@@ -280,6 +306,7 @@ function openCategoryActionModal(action) {
   } else if (state.categoryAction === "rename") {
     title.textContent = "修改目录";
     target.textContent = `当前目录：${currentName}`;
+    addModeRow.style.display = "none";
     inputRow.style.display = "";
     input.value = current?.name || "";
     input.placeholder = "请输入新目录名称";
@@ -288,12 +315,13 @@ function openCategoryActionModal(action) {
     window.setTimeout(() => input.focus(), 0);
   } else {
     title.textContent = "新增目录";
-    target.textContent = `父级目录：${currentName}`;
+    addModeRow.style.display = "";
     inputRow.style.display = "";
     input.value = "";
     input.placeholder = "请输入新目录名称";
     confirmBtn.textContent = "确认新增";
     confirmBtn.classList.remove("danger");
+    setCategoryAddMode(state.categoryAddMode);
     window.setTimeout(() => input.focus(), 0);
   }
 
@@ -1429,12 +1457,15 @@ async function applyCategoryAction() {
 
   if (action === "add") {
     if (!name) throw new Error("目录名称不能为空");
+    const current = state.categories.find((item) => item.id === categoryId);
+    const parentId =
+      state.categoryAddMode === "sibling" ? (current?.parent_id ?? null) : categoryId;
     const created = await request("/api/categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name,
-        parent_id: categoryId,
+        parent_id: parentId,
       }),
     });
     state.selectedTreeCategoryId = created.id || state.selectedTreeCategoryId;
@@ -1538,6 +1569,12 @@ function bindEvents() {
   el("categoryActionInput").addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     confirmCategoryActionFromModal().catch((err) => toast(err.message));
+  });
+  el("categoryAddSiblingBtn").addEventListener("click", () => {
+    setCategoryAddMode("sibling");
+  });
+  el("categoryAddChildBtn").addEventListener("click", () => {
+    setCategoryAddMode("child");
   });
   document.querySelectorAll("[data-category-action]").forEach((button) => {
     button.addEventListener("click", () => {
