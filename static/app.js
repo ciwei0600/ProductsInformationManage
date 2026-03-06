@@ -5,6 +5,7 @@ const state = {
   pageSize: 20,
   total: 0,
   selectedTreeCategoryId: null,
+  expandedCategoryIds: new Set(),
   categoryAction: "add",
   materialProducts: [],
   quoteLines: [],
@@ -203,55 +204,60 @@ function updateCategorySelectionHint() {
   }
 }
 
-function renderCategoryProductsPreview(items) {
-  const body = el("categoryProductsBody");
-  if (!items.length) {
-    body.innerHTML = '<tr><td colspan="5" class="hint">该目录下暂无产品</td></tr>';
-    return;
-  }
-
-  body.innerHTML = items
-    .map((item) => {
-      const name = item.chinese_name || item.name || "-";
-      return `
-      <tr>
-        <td>${item.code || "-"}</td>
-        <td>${name}</td>
-        <td>${item.effect || "-"}</td>
-        <td>${item.package_quantity || "-"}</td>
-        <td>${item.gross_weight || "-"}</td>
-      </tr>
-      `;
-    })
-    .join("");
-}
-
-async function refreshCategoryProductsPreview() {
-  const selectedId = Number(el("manageCategoryId").value);
-  if (!selectedId) {
-    setText("categoryProductsSummary", "请选择目录查看产品");
-    renderCategoryProductsPreview([]);
-    return;
-  }
-
-  const items = await fetchAllProducts({ categoryId: selectedId });
-  setText("categoryProductsSummary", `当前目录下共 ${items.length} 个产品（含子目录）`);
-  renderCategoryProductsPreview(items);
-}
-
 function renderCategoryTree() {
   const container = el("categoryTree");
+  const parentMap = new Map();
+  for (const category of state.categories) {
+    parentMap.set(category.id, category.parent_id ?? null);
+  }
+
+  const subtreeProducts = new Map();
+  for (const product of state.materialProducts) {
+    let categoryId = product.category_id == null ? null : Number(product.category_id);
+    const visited = new Set();
+    while (categoryId && !visited.has(categoryId)) {
+      visited.add(categoryId);
+      if (!subtreeProducts.has(categoryId)) {
+        subtreeProducts.set(categoryId, []);
+      }
+      subtreeProducts.get(categoryId).push(product);
+      categoryId = parentMap.get(categoryId) ?? null;
+    }
+  }
 
   function renderNodes(nodes, depth = 0) {
     let html = "";
     for (const node of nodes) {
       const active = state.selectedTreeCategoryId === node.id ? "active" : "";
+      const products = subtreeProducts.get(node.id) || [];
+      const hasContent = products.length > 0;
+      const expanded = state.expandedCategoryIds.has(node.id);
+      const sign = hasContent ? (expanded ? "-" : "+") : "·";
+      const signClass = hasContent ? "tree-sign" : "tree-sign empty";
       const padding = 10 + depth * 14;
       html += `<li>
-        <div class="tree-item ${active}" data-id="${node.id}" style="padding-left:${padding}px">${node.name}</div>
+        <div
+          class="tree-item ${active}"
+          data-id="${node.id}"
+          data-expandable="${hasContent ? "1" : "0"}"
+          style="padding-left:${padding}px"
+        >
+          <span class="${signClass}">${sign}</span>
+          <span>${node.name}</span>
+        </div>
       `;
       if (node.children && node.children.length > 0) {
         html += `<ul class="tree">${renderNodes(node.children, depth + 1)}</ul>`;
+      }
+      if (expanded && products.length > 0) {
+        html += '<ul class="tree-products">';
+        html += products
+          .map((product) => {
+            const name = product.chinese_name || product.name || "-";
+            return `<li class="tree-product-item">${product.code || "-"} | ${name}</li>`;
+          })
+          .join("");
+        html += "</ul>";
       }
       html += "</li>";
     }
@@ -267,8 +273,14 @@ function renderCategoryTree() {
       el("manageCategoryId").value = String(id);
       el("newCategoryParent").value = String(id);
       updateCategorySelectionHint();
+      if (item.dataset.expandable === "1") {
+        if (state.expandedCategoryIds.has(id)) {
+          state.expandedCategoryIds.delete(id);
+        } else {
+          state.expandedCategoryIds.add(id);
+        }
+      }
       renderCategoryTree();
-      refreshCategoryProductsPreview().catch((err) => toast(err.message));
     });
   });
 }
@@ -428,7 +440,6 @@ async function loadCategories() {
   updateCategorySelectionHint();
 
   renderCategoryTree();
-  await refreshCategoryProductsPreview();
 }
 
 async function loadProducts() {
@@ -524,6 +535,7 @@ async function loadMaterialProducts() {
   state.materialProducts = await fetchAllProducts();
   refreshMaterialSelectors();
   await refreshMaterialPackagingByFilter();
+  renderCategoryTree();
 }
 
 function calculateFlowPerHour() {
@@ -793,7 +805,6 @@ function bindEvents() {
     }
     updateCategorySelectionHint();
     renderCategoryTree();
-    refreshCategoryProductsPreview().catch((err) => toast(err.message));
   });
   document.querySelectorAll("[data-category-action]").forEach((button) => {
     button.addEventListener("click", () => {

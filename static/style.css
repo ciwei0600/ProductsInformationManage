@@ -208,10 +208,6 @@ button.danger {
   font-size: 15px;
 }
 
-#categoryProductsBody td {
-  font-size: 13px;
-}
-
 .action-tabs {
   display: flex;
   gap: 8px;
@@ -278,6 +274,36 @@ button.danger {
   border-radius: 6px;
   cursor: pointer;
   margin: 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tree-sign {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+  font-weight: 700;
+  color: #0b5f59;
+}
+
+.tree-sign.empty {
+  color: #9ca3af;
+}
+
+.tree-products {
+  list-style: none;
+  margin: 2px 0 6px;
+  padding: 0;
+}
+
+.tree-product-item {
+  margin: 2px 0 2px 24px;
+  padding: 5px 8px;
+  border-left: 2px solid #d9f3f0;
+  border-radius: 4px;
+  color: #475569;
+  font-size: 13px;
 }
 
 .tree-item:hover,
