@@ -295,6 +295,18 @@ button.danger {
   font-size: 15px;
 }
 
+.field-col {
+  width: 100%;
+}
+
+.field-error {
+  min-height: 16px;
+  margin-top: 4px;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 .product-image-panel {
   display: none;
   margin: 8px 0 12px;

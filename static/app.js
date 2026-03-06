@@ -28,7 +28,9 @@ async function request(url, options = {}) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || "请求失败");
+    const err = new Error(data.error || "请求失败");
+    err.payload = data;
+    throw err;
   }
   return data;
 }
@@ -50,6 +52,12 @@ function setText(id, value) {
   const node = el(id);
   if (!node) return;
   node.textContent = value;
+}
+
+function setProductCodeError(message = "") {
+  const node = el("productCodeError");
+  if (!node) return;
+  node.textContent = message;
 }
 
 function productDisplayName(product) {
@@ -461,6 +469,7 @@ function resetProductForm() {
   el("productPackageQuantity").value = "";
   el("productPackageSize").value = "";
   el("productGrossWeight").value = "";
+  setProductCodeError("");
   el("productFormTitle").textContent = "新增产品";
   el("productShowImagesToggle").checked = false;
   setProductImagePanelVisible(false);
@@ -767,6 +776,7 @@ async function loadProductDetail(id) {
   el("productPackageQuantity").value = product.package_quantity || "";
   el("productPackageSize").value = product.package_size || "";
   el("productGrossWeight").value = product.gross_weight || "";
+  setProductCodeError("");
   el("productFormTitle").textContent = `编辑产品 #${product.id}`;
   el("productShowImagesToggle").checked = true;
   setProductImagePanelVisible(true);
@@ -822,6 +832,7 @@ async function applyCategoryAction() {
 }
 
 async function saveProduct() {
+  setProductCodeError("");
   const productId = el("productId").value;
   const payload = {
     code: el("productCode").value.trim(),
@@ -914,9 +925,18 @@ function bindEvents() {
     loadProducts().catch((err) => toast(err.message));
   });
 
-  el("saveProductBtn").addEventListener("click", () =>
-    saveProduct().catch((err) => toast(err.message))
-  );
+  el("productCode").addEventListener("input", () => setProductCodeError(""));
+  el("saveProductBtn").addEventListener("click", () => {
+    saveProduct().catch((err) => {
+      const conflict = err?.payload?.conflict;
+      if (conflict) {
+        const conflictName = conflict.chinese_name || "未命名产品";
+        setProductCodeError(`编码重复：与产品 #${conflict.id}（${conflictName}）冲突`);
+        return;
+      }
+      toast(err.message);
+    });
+  });
   el("resetProductBtn").addEventListener("click", resetProductForm);
   el("uploadImageBtn").addEventListener("click", () =>
     uploadImage().catch((err) => toast(err.message))

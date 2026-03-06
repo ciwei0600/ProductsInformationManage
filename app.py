@@ -280,6 +280,20 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             product_id = save_product(None, payload)
+        except DuplicateProductCodeError as exc:
+            return (
+                jsonify(
+                    {
+                        "error": "产品编码已存在",
+                        "conflict": {
+                            "id": exc.conflict_id,
+                            "code": exc.code,
+                            "chinese_name": exc.conflict_name,
+                        },
+                    }
+                ),
+                400,
+            )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except sqlite3.IntegrityError:
@@ -291,6 +305,20 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True) or {}
         try:
             save_product(product_id, payload)
+        except DuplicateProductCodeError as exc:
+            return (
+                jsonify(
+                    {
+                        "error": "产品编码已存在",
+                        "conflict": {
+                            "id": exc.conflict_id,
+                            "code": exc.code,
+                            "chinese_name": exc.conflict_name,
+                        },
+                    }
+                ),
+                400,
+            )
         except LookupError as exc:
             return jsonify({"error": str(exc)}), 404
         except ValueError as exc:
@@ -542,6 +570,14 @@ def get_descendant_category_ids(conn: sqlite3.Connection, category_id: int) -> l
     return [row["id"] for row in rows]
 
 
+class DuplicateProductCodeError(ValueError):
+    def __init__(self, code: str, conflict_id: int, conflict_name: str):
+        super().__init__("产品编码已存在")
+        self.code = code
+        self.conflict_id = conflict_id
+        self.conflict_name = conflict_name
+
+
 def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
     conn = get_db()
     code = (payload.get("code") or "").strip()
@@ -566,6 +602,20 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
         category = conn.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone()
         if category is None:
             raise ValueError("目录不存在")
+
+    duplicate = conn.execute(
+        """
+        SELECT id, code, COALESCE(NULLIF(chinese_name, ''), name, '') AS chinese_name
+        FROM products
+        WHERE code = ?
+        """,
+        (code,),
+    ).fetchone()
+    if duplicate is not None:
+        duplicate_id = int(duplicate["id"])
+        if product_id is None or duplicate_id != int(product_id):
+            conflict_name = (duplicate["chinese_name"] or "").strip() or "未命名产品"
+            raise DuplicateProductCodeError(code, duplicate_id, conflict_name)
 
     now = utc_now()
 
