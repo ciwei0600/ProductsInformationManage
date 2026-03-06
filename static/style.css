@@ -189,6 +189,14 @@ button.danger {
   flex-wrap: wrap;
 }
 
+#editSelectedProductBtn:disabled {
+  border-color: #d1d5db;
+  background: #e5e7eb;
+  color: #6b7280;
+  cursor: not-allowed;
+  filter: none;
+}
+
 .category-layout {
   display: grid;
   grid-template-columns: 1fr;
