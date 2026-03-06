@@ -201,16 +201,6 @@ function setCategoryAction(action) {
     };
     actionButton.textContent = labelMap[finalAction] || "执行";
   }
-
-  const nameInput = el("categoryActionName");
-  if (nameInput) {
-    const placeholderMap = {
-      add: "目录名称",
-      rename: "目录名称",
-      delete: "目录名称（删除时可不填）",
-    };
-    nameInput.placeholder = placeholderMap[finalAction] || "目录名称";
-  }
 }
 
 function renderCategoryTree() {
@@ -787,13 +777,13 @@ async function loadProductDetail(id) {
 async function applyCategoryAction() {
   const action = state.categoryAction;
   const categoryId = state.selectedTreeCategoryId;
-  const name = el("categoryActionName").value.trim();
 
   if (!categoryId) {
     throw new Error("请先在目录树选择类型");
   }
 
   if (action === "add") {
+    const name = (window.prompt("请输入新目录名称") || "").trim();
     if (!name) throw new Error("目录名称不能为空");
     const created = await request("/api/categories", {
       method: "POST",
@@ -803,7 +793,6 @@ async function applyCategoryAction() {
         parent_id: categoryId,
       }),
     });
-    el("categoryActionName").value = "";
     state.selectedTreeCategoryId = created.id || state.selectedTreeCategoryId;
     toast("目录已新增");
     await Promise.all([loadCategories(), loadProducts(), loadStats(), loadMaterialProducts()]);
@@ -811,13 +800,14 @@ async function applyCategoryAction() {
   }
 
   if (action === "rename") {
+    const current = state.categories.find((item) => item.id === categoryId);
+    const name = (window.prompt("请输入新目录名称", current?.name || "") || "").trim();
     if (!name) throw new Error("目录名称不能为空");
     await request(`/api/categories/${categoryId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
-    el("categoryActionName").value = "";
     toast("目录已重命名");
     await Promise.all([loadCategories(), loadProducts(), loadMaterialProducts()]);
     return;
@@ -900,10 +890,6 @@ function bindEvents() {
   el("applyCategoryActionBtn").addEventListener("click", () =>
     applyCategoryAction().catch((err) => toast(err.message))
   );
-  el("categoryActionName").addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
-    applyCategoryAction().catch((err) => toast(err.message));
-  });
   document.querySelectorAll("[data-category-action]").forEach((button) => {
     button.addEventListener("click", () => {
       if (button.disabled) return;
