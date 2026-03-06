@@ -261,7 +261,31 @@ function renderCategoryTree() {
         html += products
           .map((product) => {
             const name = product.chinese_name || product.name || "-";
-            return `<li class="tree-product-item">${product.code || "-"} | ${name}</li>`;
+            const imageBlock = product.first_image
+              ? `<img class="tree-product-thumb" src="/media/${product.first_image}" alt="${name}" />`
+              : '<div class="tree-product-no-image">无图</div>';
+            return `
+            <li class="tree-product-item">
+              <div class="tree-product-main">
+                <div class="tree-product-media">
+                  ${imageBlock}
+                  <div class="tree-product-image-count">共 ${product.image_count || 0} 张</div>
+                </div>
+                <div class="tree-product-info">
+                  <div class="tree-product-title">${product.code || "-"} | ${name}</div>
+                  <div class="tree-product-grid">
+                    <div>作用：${product.effect || "-"}</div>
+                    <div>喷洒半径：${product.spray_radius || "-"}</div>
+                    <div>单个重量：${product.unit_weight || "-"}</div>
+                    <div>包装数量：${product.package_quantity || "-"}</div>
+                    <div>包装尺寸：${product.package_size || "-"}</div>
+                    <div>总重量：${product.gross_weight || "-"}</div>
+                    <div>目录：${product.category_name || "-"}</div>
+                  </div>
+                </div>
+              </div>
+            </li>
+            `;
           })
           .join("");
         html += "</ul>";
