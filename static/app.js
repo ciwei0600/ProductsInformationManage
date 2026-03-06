@@ -97,6 +97,12 @@ function updateEditSelectedProductButtonState() {
   button.disabled = !state.selectedTreeProductId;
 }
 
+function updateDeleteProductButtonState() {
+  const button = el("deleteProductBtn");
+  if (!button) return;
+  button.disabled = !el("productId").value;
+}
+
 function productDisplayName(product) {
   const name = product.chinese_name || product.name || "";
   return `${product.code} | ${name}`;
@@ -829,6 +835,7 @@ function resetProductForm() {
   el("productFormTitle").textContent = "新增产品";
   el("productShowImagesToggle").checked = false;
   setProductImagePanelVisible(false);
+  updateDeleteProductButtonState();
   state.selectedProductMainImagePath = null;
   const mainImage = el("productMainImage");
   if (mainImage) {
@@ -1438,12 +1445,34 @@ async function loadProductDetail(id) {
   el("productFormTitle").textContent = `编辑产品 #${product.id}`;
   el("productShowImagesToggle").checked = true;
   setProductImagePanelVisible(true);
+  updateDeleteProductButtonState();
 
   renderProductImages(data.images || []);
   resetBomEditor();
   await loadProductBoomBaseItems(product.category_id);
   renderBomItems(data.bom_items || [], Number(data.bom_total_cost || 0));
   setBomEditorEnabled(true);
+}
+
+async function deleteProductFromDetail() {
+  const productId = Number(el("productId").value);
+  if (!productId) {
+    throw new Error("请先选择产品");
+  }
+
+  if (!window.confirm("确认删除当前产品？")) return;
+  if (!window.confirm("请再次确认：删除后不可恢复，是否继续？")) return;
+
+  await request(`/api/products/${productId}`, { method: "DELETE" });
+  toast("产品已删除");
+
+  if (state.selectedTreeProductId === productId) {
+    state.selectedTreeProductId = null;
+    updateEditSelectedProductButtonState();
+  }
+
+  resetProductForm();
+  await Promise.all([loadProducts(), loadStats(), loadMaterialProducts()]);
 }
 
 async function applyCategoryAction() {
@@ -1613,6 +1642,9 @@ function bindEvents() {
     });
   });
   el("resetProductBtn").addEventListener("click", resetProductForm);
+  el("deleteProductBtn").addEventListener("click", () =>
+    deleteProductFromDetail().catch((err) => toast(err.message))
+  );
   el("uploadImageBtn").addEventListener("click", () =>
     uploadImage().catch((err) => toast(err.message))
   );
@@ -1699,6 +1731,7 @@ async function bootstrap() {
   bindEvents();
   setCategoryAction("add");
   updateEditSelectedProductButtonState();
+  updateDeleteProductButtonState();
   initSideNavigation();
   resetProductForm();
   resetBoomBaseForm();
