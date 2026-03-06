@@ -10,11 +10,14 @@ const state = {
   expandedCategoryIds: new Set(),
   categoryAction: "add",
   materialProducts: [],
+  boomBaseItems: [],
   rawMaterials: [],
   quoteLines: [],
   currentProductBomItems: [],
+  currentProductBoomBaseItems: [],
   currentProductBomTotalCost: 0,
   editingBomItemId: null,
+  editingBoomBaseItemId: null,
   editingRawMaterialId: null,
 };
 
@@ -212,6 +215,28 @@ function fillCategorySelect(selectId, includeAll = false) {
   select.innerHTML = html;
   if ([...select.options].some((option) => option.value === currentValue)) {
     select.value = currentValue;
+  }
+}
+
+function fillCategorySelectRequired(selectId, placeholder = "请选择目录") {
+  const select = el(selectId);
+  if (!select) return;
+
+  const pathMap = categoryPathMap();
+  const currentValue = select.value;
+  let html = `<option value="">${placeholder}</option>`;
+  for (const category of state.categories) {
+    const path = pathMap.get(category.id) || category.name;
+    html += `<option value="${category.id}">${path}</option>`;
+  }
+  select.innerHTML = html;
+
+  if ([...select.options].some((option) => option.value === currentValue)) {
+    select.value = currentValue;
+    return;
+  }
+  if (state.categories.length > 0) {
+    select.value = String(state.categories[0].id);
   }
 }
 
@@ -546,6 +571,55 @@ function renderProductImages(images) {
   });
 }
 
+function renderProductBoomBaseSelect(
+  items,
+  selectedBaseItemId = null,
+  placeholder = "选择目录BOOM基础项（可选）"
+) {
+  const select = el("bomBaseItemSelect");
+  if (!select) return;
+
+  let html = `<option value="">${placeholder}</option>`;
+  for (const item of items) {
+    const title = item.item_spec
+      ? `${item.item_name} | ${item.item_spec}`
+      : item.item_name;
+    const cost = Number(item.default_unit_cost || 0);
+    html += `<option value="${item.id}">${escapeHtml(title)} | 默认单价 ${toMoney(cost)}</option>`;
+  }
+  select.innerHTML = html;
+
+  const selectedValue = selectedBaseItemId ? String(selectedBaseItemId) : "";
+  if ([...select.options].some((option) => option.value === selectedValue)) {
+    select.value = selectedValue;
+    return;
+  }
+  select.value = "";
+}
+
+async function loadProductBoomBaseItems(categoryId, selectedBaseItemId = null) {
+  if (!categoryId) {
+    state.currentProductBoomBaseItems = [];
+    renderProductBoomBaseSelect([], null, "当前产品未设置目录，无法选择BOOM基础项");
+    return;
+  }
+  const data = await request(`/api/category-boom-base-items?category_id=${categoryId}`);
+  state.currentProductBoomBaseItems = data.items || [];
+  renderProductBoomBaseSelect(state.currentProductBoomBaseItems, selectedBaseItemId);
+}
+
+function applySelectedProductBoomBaseItem() {
+  const selectedId = Number(el("bomBaseItemSelect").value);
+  if (!selectedId) return;
+  const selected = state.currentProductBoomBaseItems.find((item) => item.id === selectedId);
+  if (!selected) return;
+
+  el("bomItemName").value = selected.item_name || "";
+  el("bomItemSpec").value = selected.item_spec || "";
+  el("bomItemUnit").value = selected.unit || "";
+  el("bomItemUnitCost").value = formatDecimal(Number(selected.default_unit_cost || 0), 6);
+}
+
 function setBomEditorEnabled(enabled) {
   const bomEditorHint = el("bomEditorHint");
   const bomEditor = el("bomEditor");
@@ -555,13 +629,14 @@ function setBomEditorEnabled(enabled) {
     ? "为当前产品设置BOM项目后，可在成本计算中自动带入单件成本。"
     : "请先保存产品后，再维护BOM项目。";
 
-  bomEditor.querySelectorAll("input, button").forEach((node) => {
+  bomEditor.querySelectorAll("input, button, select").forEach((node) => {
     node.disabled = !enabled;
   });
 }
 
 function resetBomEditor() {
   state.editingBomItemId = null;
+  el("bomBaseItemSelect").value = "";
   el("bomItemName").value = "";
   el("bomItemSpec").value = "";
   el("bomItemUnit").value = "";
@@ -579,6 +654,7 @@ function startEditBomItem(bomItemId) {
   }
 
   state.editingBomItemId = bomItemId;
+  el("bomBaseItemSelect").value = item.base_item_id ? String(item.base_item_id) : "";
   el("bomItemName").value = item.item_name || "";
   el("bomItemSpec").value = item.item_spec || "";
   el("bomItemUnit").value = item.unit || "";
@@ -661,6 +737,7 @@ function buildBomItemPayload() {
   }
 
   return {
+    base_item_id: el("bomBaseItemSelect").value ? Number(el("bomBaseItemSelect").value) : null,
     item_name: itemName,
     item_spec: el("bomItemSpec").value.trim(),
     unit: el("bomItemUnit").value.trim(),
@@ -736,6 +813,8 @@ function resetProductForm() {
   }
   el("imageFile").value = "";
   el("imageList").innerHTML = '<div class="hint">请先选择或保存一个产品后上传图片。</div>';
+  state.currentProductBoomBaseItems = [];
+  renderProductBoomBaseSelect([], null, "请先保存产品后选择BOOM基础项");
   resetBomEditor();
   renderBomItems([], 0);
   setBomEditorEnabled(false);
@@ -775,6 +854,7 @@ async function loadCategories() {
   fillCategorySelect("filterCategory", true);
   fillCategorySelect("productCategory");
   fillCategorySelect("materialPackageCategory", true);
+  fillCategorySelectRequired("boomBaseCategory", "请选择目录");
 
   if (
     state.selectedTreeCategoryId &&
@@ -786,6 +866,7 @@ async function loadCategories() {
   setCategoryAction(state.categoryAction);
 
   renderCategoryTree();
+  await loadBoomBaseItems();
 }
 
 async function loadProducts() {
@@ -857,6 +938,156 @@ function renderMaterialPackageTable(items) {
     .join("");
 
   setText("materialPackageSummary", `共 ${items.length} 个产品`);
+}
+
+function resetBoomBaseForm() {
+  state.editingBoomBaseItemId = null;
+  el("boomBaseItemId").value = "";
+  el("boomBaseItemName").value = "";
+  el("boomBaseItemSpec").value = "";
+  el("boomBaseUnit").value = "";
+  el("boomBaseDefaultUnitCost").value = "";
+  el("boomBaseRemark").value = "";
+  el("saveBoomBaseItemBtn").textContent = "新增项目";
+  el("cancelBoomBaseEditBtn").style.display = "none";
+}
+
+function renderBoomBaseItems(items) {
+  const body = el("boomBaseItemsBody");
+  state.boomBaseItems = [...items];
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="7" class="hint">当前目录暂无BOOM基础信息</td></tr>';
+    return;
+  }
+
+  body.innerHTML = items
+    .map((item) => {
+      const categoryName = item.category_name || "-";
+      return `
+      <tr>
+        <td>${escapeHtml(categoryName)}</td>
+        <td>${escapeHtml(item.item_name || "-")}</td>
+        <td>${escapeHtml(item.item_spec || "-")}</td>
+        <td>${escapeHtml(item.unit || "-")}</td>
+        <td>¥${toMoney(Number(item.default_unit_cost || 0))}</td>
+        <td>${escapeHtml(item.remark || "-")}</td>
+        <td>
+          <div class="button-row">
+            <button type="button" data-boom-action="edit" data-id="${item.id}">修改</button>
+            <button type="button" class="danger" data-boom-action="delete" data-id="${item.id}">删除</button>
+          </div>
+        </td>
+      </tr>
+      `;
+    })
+    .join("");
+
+  body.querySelectorAll("button[data-boom-action='edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const baseItemId = Number(button.dataset.id);
+      const target = state.boomBaseItems.find((item) => item.id === baseItemId);
+      if (!target) {
+        toast("未找到要修改的BOOM基础项");
+        return;
+      }
+      state.editingBoomBaseItemId = baseItemId;
+      el("boomBaseItemId").value = String(target.id);
+      el("boomBaseItemName").value = target.item_name || "";
+      el("boomBaseItemSpec").value = target.item_spec || "";
+      el("boomBaseUnit").value = target.unit || "";
+      el("boomBaseDefaultUnitCost").value = formatDecimal(Number(target.default_unit_cost || 0), 6);
+      el("boomBaseRemark").value = target.remark || "";
+      el("saveBoomBaseItemBtn").textContent = "保存修改";
+      el("cancelBoomBaseEditBtn").style.display = "";
+    });
+  });
+
+  body.querySelectorAll("button[data-boom-action='delete']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const baseItemId = Number(button.dataset.id);
+      deleteBoomBaseItem(baseItemId).catch((err) => toast(err.message));
+    });
+  });
+}
+
+async function loadBoomBaseItems() {
+  const categoryId = Number(el("boomBaseCategory").value);
+  if (!categoryId) {
+    state.boomBaseItems = [];
+    el("boomBaseItemsBody").innerHTML =
+      '<tr><td colspan="7" class="hint">请选择目录后维护BOOM基础信息</td></tr>';
+    return;
+  }
+  const data = await request(`/api/category-boom-base-items?category_id=${categoryId}`);
+  renderBoomBaseItems(data.items || []);
+}
+
+async function saveBoomBaseItem() {
+  const categoryId = Number(el("boomBaseCategory").value);
+  if (!categoryId) {
+    throw new Error("请选择目录");
+  }
+
+  const itemName = el("boomBaseItemName").value.trim();
+  if (!itemName) {
+    throw new Error("项目名称不能为空");
+  }
+
+  const payload = {
+    category_id: categoryId,
+    item_name: itemName,
+    item_spec: el("boomBaseItemSpec").value.trim(),
+    unit: el("boomBaseUnit").value.trim(),
+    default_unit_cost: el("boomBaseDefaultUnitCost").value.trim() || "0",
+    remark: el("boomBaseRemark").value.trim(),
+  };
+
+  if (state.editingBoomBaseItemId) {
+    await request(`/api/category-boom-base-items/${state.editingBoomBaseItemId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("BOOM基础项已修改");
+  } else {
+    await request("/api/category-boom-base-items", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("BOOM基础项已新增");
+  }
+
+  resetBoomBaseForm();
+  await loadBoomBaseItems();
+
+  const productId = Number(el("productId").value);
+  if (productId) {
+    const productCategoryId = Number(el("productCategory").value);
+    if (productCategoryId && productCategoryId === categoryId) {
+      await loadProductBoomBaseItems(productCategoryId);
+    }
+  }
+}
+
+async function deleteBoomBaseItem(baseItemId) {
+  if (!baseItemId) return;
+  if (!window.confirm("确认删除该BOOM基础项？")) return;
+
+  await request(`/api/category-boom-base-items/${baseItemId}`, { method: "DELETE" });
+  toast("BOOM基础项已删除");
+  if (state.editingBoomBaseItemId === baseItemId) {
+    resetBoomBaseForm();
+  }
+  await loadBoomBaseItems();
+
+  const productId = Number(el("productId").value);
+  if (productId) {
+    const productCategoryId = Number(el("productCategory").value);
+    if (productCategoryId) {
+      await loadProductBoomBaseItems(productCategoryId);
+    }
+  }
 }
 
 function resetRawMaterialForm() {
@@ -1182,6 +1413,7 @@ async function loadProductDetail(id) {
 
   renderProductImages(data.images || []);
   resetBomEditor();
+  await loadProductBoomBaseItems(product.category_id);
   renderBomItems(data.bom_items || [], Number(data.bom_total_cost || 0));
   setBomEditorEnabled(true);
 }
@@ -1347,6 +1579,9 @@ function bindEvents() {
   el("uploadImageBtn").addEventListener("click", () =>
     uploadImage().catch((err) => toast(err.message))
   );
+  el("bomBaseItemSelect").addEventListener("change", () => {
+    applySelectedProductBoomBaseItem();
+  });
 
   el("prevPageBtn").addEventListener("click", () => {
     if (state.page <= 1) return;
@@ -1372,6 +1607,14 @@ function bindEvents() {
   el("materialPackageSearchBtn").addEventListener("click", () =>
     refreshMaterialPackagingByFilter().catch((err) => toast(err.message))
   );
+  el("boomBaseCategory").addEventListener("change", () => {
+    resetBoomBaseForm();
+    loadBoomBaseItems().catch((err) => toast(err.message));
+  });
+  el("saveBoomBaseItemBtn").addEventListener("click", () =>
+    saveBoomBaseItem().catch((err) => toast(err.message))
+  );
+  el("cancelBoomBaseEditBtn").addEventListener("click", () => resetBoomBaseForm());
   el("saveRawMaterialBtn").addEventListener("click", () =>
     saveRawMaterial().catch((err) => toast(err.message))
   );
@@ -1421,6 +1664,7 @@ async function bootstrap() {
   updateEditSelectedProductButtonState();
   initSideNavigation();
   resetProductForm();
+  resetBoomBaseForm();
   resetRawMaterialForm();
   setProductImagePanelVisible(false);
   resetMaterialPanels();
