@@ -321,6 +321,25 @@ button.ghost {
   line-height: 1.2;
 }
 
+.bom-editor {
+  margin-top: 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.bom-input-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+#bomItemsBody .button-row button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
 .product-image-panel {
   display: none;
   margin: 8px 0 12px;
@@ -692,6 +711,10 @@ td {
   }
 
   .line-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .bom-input-grid {
     grid-template-columns: 1fr;
   }
 

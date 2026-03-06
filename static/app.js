@@ -11,6 +11,9 @@ const state = {
   categoryAction: "add",
   materialProducts: [],
   quoteLines: [],
+  currentProductBomItems: [],
+  currentProductBomTotalCost: 0,
+  editingBomItemId: null,
 };
 
 function el(id) {
@@ -58,6 +61,22 @@ function setProductCodeError(message = "") {
   const node = el("productCodeError");
   if (!node) return;
   node.textContent = message;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function formatDecimal(value, fractionDigits = 4) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  if (Number.isInteger(number)) return String(number);
+  return number.toFixed(fractionDigits).replace(/\.?0+$/, "");
 }
 
 function updateEditSelectedProductButtonState() {
@@ -507,6 +526,168 @@ function renderProductImages(images) {
   });
 }
 
+function setBomEditorEnabled(enabled) {
+  const bomEditorHint = el("bomEditorHint");
+  const bomEditor = el("bomEditor");
+  if (!bomEditorHint || !bomEditor) return;
+
+  bomEditorHint.textContent = enabled
+    ? "为当前产品设置BOM项目后，可在成本计算中自动带入单件成本。"
+    : "请先保存产品后，再维护BOM项目。";
+
+  bomEditor.querySelectorAll("input, button").forEach((node) => {
+    node.disabled = !enabled;
+  });
+}
+
+function resetBomEditor() {
+  state.editingBomItemId = null;
+  el("bomItemName").value = "";
+  el("bomItemSpec").value = "";
+  el("bomItemUnit").value = "";
+  el("bomItemQty").value = "0";
+  el("bomItemUnitCost").value = "0";
+  el("bomItemRemark").value = "";
+  el("saveBomItemBtn").textContent = "新增项目";
+  el("cancelBomEditBtn").style.display = "none";
+}
+
+function startEditBomItem(bomItemId) {
+  const item = state.currentProductBomItems.find((row) => row.id === bomItemId);
+  if (!item) {
+    throw new Error("未找到要修改的BOM项目");
+  }
+
+  state.editingBomItemId = bomItemId;
+  el("bomItemName").value = item.item_name || "";
+  el("bomItemSpec").value = item.item_spec || "";
+  el("bomItemUnit").value = item.unit || "";
+  el("bomItemQty").value = formatDecimal(item.quantity, 6);
+  el("bomItemUnitCost").value = formatDecimal(item.unit_cost, 6);
+  el("bomItemRemark").value = item.remark || "";
+  el("saveBomItemBtn").textContent = "保存修改";
+  el("cancelBomEditBtn").style.display = "";
+}
+
+function renderBomItems(items, totalCost = 0) {
+  const body = el("bomItemsBody");
+  const bomTotal = Number(totalCost);
+  state.currentProductBomItems = [...items];
+  state.currentProductBomTotalCost = Number.isFinite(bomTotal) ? bomTotal : 0;
+
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="8" class="hint">暂无BOM项目</td></tr>';
+    setText("bomTotalCost", "BOM单件成本合计: ¥0.00");
+    return;
+  }
+
+  body.innerHTML = items
+    .map((item) => {
+      const lineTotal = Number(item.line_total);
+      return `
+      <tr>
+        <td>${escapeHtml(item.item_name || "-")}</td>
+        <td>${escapeHtml(item.item_spec || "-")}</td>
+        <td>${escapeHtml(item.unit || "-")}</td>
+        <td>${formatDecimal(item.quantity)}</td>
+        <td>${toMoney(Number(item.unit_cost))}</td>
+        <td>${toMoney(Number.isFinite(lineTotal) ? lineTotal : Number(item.quantity) * Number(item.unit_cost))}</td>
+        <td>${escapeHtml(item.remark || "-")}</td>
+        <td>
+          <div class="button-row">
+            <button type="button" data-bom-action="edit" data-id="${item.id}">修改</button>
+            <button type="button" class="danger" data-bom-action="delete" data-id="${item.id}">删除</button>
+          </div>
+        </td>
+      </tr>
+      `;
+    })
+    .join("");
+
+  setText("bomTotalCost", `BOM单件成本合计: ¥${toMoney(state.currentProductBomTotalCost)}`);
+
+  body.querySelectorAll("button[data-bom-action='edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const bomItemId = Number(button.dataset.id);
+      try {
+        startEditBomItem(bomItemId);
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+  });
+
+  body.querySelectorAll("button[data-bom-action='delete']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const bomItemId = Number(button.dataset.id);
+      deleteBomItem(bomItemId).catch((err) => toast(err.message));
+    });
+  });
+}
+
+function buildBomItemPayload() {
+  const itemName = el("bomItemName").value.trim();
+  if (!itemName) {
+    throw new Error("BOM项目名称不能为空");
+  }
+
+  const quantity = Number(el("bomItemQty").value || "0");
+  const unitCost = Number(el("bomItemUnitCost").value || "0");
+  if (!Number.isFinite(quantity) || quantity < 0) {
+    throw new Error("BOM数量必须大于等于0");
+  }
+  if (!Number.isFinite(unitCost) || unitCost < 0) {
+    throw new Error("BOM单价必须大于等于0");
+  }
+
+  return {
+    item_name: itemName,
+    item_spec: el("bomItemSpec").value.trim(),
+    unit: el("bomItemUnit").value.trim(),
+    quantity,
+    unit_cost: unitCost,
+    remark: el("bomItemRemark").value.trim(),
+  };
+}
+
+async function saveBomItem() {
+  const productId = Number(el("productId").value);
+  if (!productId) {
+    throw new Error("请先保存产品，再维护BOM");
+  }
+
+  const payload = buildBomItemPayload();
+  if (state.editingBomItemId) {
+    await request(`/api/bom-items/${state.editingBomItemId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("BOM项目已修改");
+  } else {
+    await request(`/api/products/${productId}/bom-items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("BOM项目已新增");
+  }
+
+  resetBomEditor();
+  await Promise.all([loadProductDetail(productId), loadProducts(), loadMaterialProducts()]);
+}
+
+async function deleteBomItem(bomItemId) {
+  if (!bomItemId) return;
+  if (!window.confirm("确认删除该BOM项目？")) return;
+  const productId = Number(el("productId").value);
+  await request(`/api/bom-items/${bomItemId}`, { method: "DELETE" });
+  toast("BOM项目已删除");
+  resetBomEditor();
+  if (!productId) return;
+  await Promise.all([loadProductDetail(productId), loadProducts(), loadMaterialProducts()]);
+}
+
 function resetProductForm() {
   el("productId").value = "";
   el("productCode").value = "";
@@ -535,6 +716,9 @@ function resetProductForm() {
   }
   el("imageFile").value = "";
   el("imageList").innerHTML = '<div class="hint">请先选择或保存一个产品后上传图片。</div>';
+  resetBomEditor();
+  renderBomItems([], 0);
+  setBomEditorEnabled(false);
 }
 
 function setProductImagePanelVisible(show) {
@@ -545,6 +729,7 @@ function setProductImagePanelVisible(show) {
 
 function resetMaterialPanels() {
   setText("flowPerHour", "-");
+  setText("materialCostUnitHint", "默认自动带入产品BOM单件成本，可手动修改");
 
   setText("costPackageCount", "-");
   setText("costSubtotal", "-");
@@ -654,9 +839,30 @@ function renderMaterialPackageTable(items) {
   setText("materialPackageSummary", `共 ${items.length} 个产品`);
 }
 
+function syncMaterialCostUnitFromSelectedProduct() {
+  const product = getMaterialProductById(el("materialCostProduct").value);
+  if (!product) {
+    el("materialCostUnit").value = "0";
+    setText("materialCostUnitHint", "默认自动带入产品BOM单件成本，可手动修改");
+    return;
+  }
+
+  const bomUnitCost = Number(product.bom_unit_cost || 0);
+  const normalizedCost = Number.isFinite(bomUnitCost) ? bomUnitCost : 0;
+  el("materialCostUnit").value = formatDecimal(normalizedCost, 6);
+
+  if (normalizedCost > 0) {
+    setText("materialCostUnitHint", `已自动带入BOM单件成本: ¥${toMoney(normalizedCost)}`);
+    return;
+  }
+
+  setText("materialCostUnitHint", "该产品未设置BOM成本，当前默认 0，可手动输入");
+}
+
 function refreshMaterialSelectors() {
   fillMaterialProductSelect("materialCostProduct");
   fillMaterialProductSelect("quoteProduct");
+  syncMaterialCostUnitFromSelectedProduct();
 }
 
 async function refreshMaterialPackagingByFilter() {
@@ -833,6 +1039,9 @@ async function loadProductDetail(id) {
   setProductImagePanelVisible(true);
 
   renderProductImages(data.images || []);
+  resetBomEditor();
+  renderBomItems(data.bom_items || [], Number(data.bom_total_cost || 0));
+  setBomEditorEnabled(true);
 }
 
 async function applyCategoryAction() {
@@ -1032,6 +1241,9 @@ function bindEvents() {
   el("materialPackageCategory").addEventListener("change", () =>
     refreshMaterialPackagingByFilter().catch((err) => toast(err.message))
   );
+  el("materialCostProduct").addEventListener("change", () => {
+    syncMaterialCostUnitFromSelectedProduct();
+  });
 
   el("calcCostBtn").addEventListener("click", () => {
     try {
@@ -1040,6 +1252,11 @@ function bindEvents() {
       toast(err.message);
     }
   });
+
+  el("saveBomItemBtn").addEventListener("click", () =>
+    saveBomItem().catch((err) => toast(err.message))
+  );
+  el("cancelBomEditBtn").addEventListener("click", () => resetBomEditor());
 
   el("addQuoteLineBtn").addEventListener("click", () => {
     try {

@@ -170,6 +170,48 @@
                 </div>
               </section>
 
+              <section class="detail-section">
+                <h3>BOM清单</h3>
+                <div id="bomEditorHint" class="hint">请先保存产品后，再维护BOM项目。</div>
+                <div id="bomEditor" class="bom-editor">
+                  <div class="bom-input-grid">
+                    <input id="bomItemName" type="text" placeholder="项目名称（必填）" />
+                    <input id="bomItemSpec" type="text" placeholder="规格（可选）" />
+                    <input id="bomItemUnit" type="text" placeholder="单位（可选）" />
+                    <input id="bomItemQty" type="number" min="0" step="0.0001" value="0" placeholder="数量" />
+                    <input id="bomItemUnitCost" type="number" min="0" step="0.0001" value="0" placeholder="单价" />
+                    <input id="bomItemRemark" type="text" placeholder="备注（可选）" />
+                  </div>
+                  <div class="button-row mt12">
+                    <button id="saveBomItemBtn" type="button">新增项目</button>
+                    <button id="cancelBomEditBtn" type="button" class="ghost" style="display: none">
+                      取消修改
+                    </button>
+                  </div>
+                </div>
+
+                <div class="table-wrap mt12">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>项目</th>
+                        <th>规格</th>
+                        <th>单位</th>
+                        <th>数量</th>
+                        <th>单价</th>
+                        <th>小计</th>
+                        <th>备注</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody id="bomItemsBody">
+                      <tr><td colspan="8" class="hint">暂无BOM项目</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div id="bomTotalCost" class="hint mt12">BOM单件成本合计: ¥0.00</div>
+              </section>
+
               <div class="button-row">
                 <button id="saveProductBtn">保存</button>
                 <button id="resetProductBtn">清空</button>
@@ -240,6 +282,7 @@
             <label for="materialCostUnit">单位成本</label>
             <input id="materialCostUnit" type="number" min="0" step="0.01" value="0" />
           </div>
+          <div id="materialCostUnitHint" class="hint">默认自动带入产品BOM单件成本，可手动修改</div>
           <div class="row">
             <label for="materialCostPack">单箱包装费</label>
             <input id="materialCostPack" type="number" min="0" step="0.01" value="0" />

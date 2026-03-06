@@ -218,7 +218,12 @@ def create_app() -> Flask:
                     SELECT COUNT(*)
                     FROM product_images pi
                     WHERE pi.product_id = p.id
-                ) AS image_count
+                ) AS image_count,
+                (
+                    SELECT COALESCE(SUM(pbi.quantity * pbi.unit_cost), 0)
+                    FROM product_bom_items pbi
+                    WHERE pbi.product_id = p.id
+                ) AS bom_unit_cost
             FROM products p
             LEFT JOIN categories c ON c.id = p.category_id
             {where_sql}
@@ -273,7 +278,43 @@ def create_app() -> Flask:
             """,
             (product_id,),
         ).fetchall()
-        return jsonify({"product": dict(product), "images": [dict(row) for row in images]})
+        bom_items = conn.execute(
+            """
+            SELECT
+                id,
+                product_id,
+                item_name,
+                item_spec,
+                unit,
+                quantity,
+                unit_cost,
+                (quantity * unit_cost) AS line_total,
+                remark,
+                sort_order,
+                created_at,
+                updated_at
+            FROM product_bom_items
+            WHERE product_id = ?
+            ORDER BY sort_order, id
+            """,
+            (product_id,),
+        ).fetchall()
+        bom_total_cost = conn.execute(
+            """
+            SELECT COALESCE(SUM(quantity * unit_cost), 0)
+            FROM product_bom_items
+            WHERE product_id = ?
+            """,
+            (product_id,),
+        ).fetchone()[0]
+        return jsonify(
+            {
+                "product": dict(product),
+                "images": [dict(row) for row in images],
+                "bom_items": [dict(row) for row in bom_items],
+                "bom_total_cost": float(bom_total_cost or 0),
+            }
+        )
 
     @app.route("/api/products", methods=["POST"])
     def create_product():
@@ -391,6 +432,117 @@ def create_app() -> Flask:
         delete_media_file(row["image_path"])
         return jsonify({"ok": True})
 
+    @app.route("/api/products/<int:product_id>/bom-items", methods=["POST"])
+    def create_product_bom_item(product_id: int):
+        conn = get_db()
+        product = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        if product is None:
+            return jsonify({"error": "产品不存在"}), 404
+
+        payload = request.get_json(silent=True) or {}
+        item_name = (payload.get("item_name") or "").strip()
+        item_spec = (payload.get("item_spec") or "").strip()
+        unit = (payload.get("unit") or "").strip()
+        remark = (payload.get("remark") or "").strip()
+
+        if not item_name:
+            return jsonify({"error": "BOM项目名称不能为空"}), 400
+
+        try:
+            quantity = float(payload.get("quantity") or 0)
+            unit_cost = float(payload.get("unit_cost") or 0)
+        except (TypeError, ValueError):
+            return jsonify({"error": "数量或单价格式不正确"}), 400
+
+        if quantity < 0 or unit_cost < 0:
+            return jsonify({"error": "数量和单价不能小于0"}), 400
+
+        sort_order = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_bom_items WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()[0]
+
+        now = utc_now()
+        cursor = conn.execute(
+            """
+            INSERT INTO product_bom_items(
+                product_id, item_name, item_spec, unit, quantity, unit_cost, remark, sort_order,
+                created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                product_id,
+                item_name,
+                item_spec,
+                unit,
+                quantity,
+                unit_cost,
+                remark,
+                int(sort_order),
+                now,
+                now,
+            ),
+        )
+        conn.execute("UPDATE products SET updated_at = ? WHERE id = ?", (now, product_id))
+        conn.commit()
+        return jsonify({"id": int(cursor.lastrowid)})
+
+    @app.route("/api/bom-items/<int:bom_item_id>", methods=["PUT"])
+    def update_bom_item(bom_item_id: int):
+        conn = get_db()
+        existing = conn.execute(
+            "SELECT id, product_id FROM product_bom_items WHERE id = ?", (bom_item_id,)
+        ).fetchone()
+        if existing is None:
+            return jsonify({"error": "BOM项目不存在"}), 404
+
+        payload = request.get_json(silent=True) or {}
+        item_name = (payload.get("item_name") or "").strip()
+        item_spec = (payload.get("item_spec") or "").strip()
+        unit = (payload.get("unit") or "").strip()
+        remark = (payload.get("remark") or "").strip()
+
+        if not item_name:
+            return jsonify({"error": "BOM项目名称不能为空"}), 400
+
+        try:
+            quantity = float(payload.get("quantity") or 0)
+            unit_cost = float(payload.get("unit_cost") or 0)
+        except (TypeError, ValueError):
+            return jsonify({"error": "数量或单价格式不正确"}), 400
+
+        if quantity < 0 or unit_cost < 0:
+            return jsonify({"error": "数量和单价不能小于0"}), 400
+
+        now = utc_now()
+        conn.execute(
+            """
+            UPDATE product_bom_items
+            SET item_name = ?, item_spec = ?, unit = ?, quantity = ?, unit_cost = ?, remark = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (item_name, item_spec, unit, quantity, unit_cost, remark, now, bom_item_id),
+        )
+        conn.execute("UPDATE products SET updated_at = ? WHERE id = ?", (now, existing["product_id"]))
+        conn.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/bom-items/<int:bom_item_id>", methods=["DELETE"])
+    def delete_bom_item(bom_item_id: int):
+        conn = get_db()
+        existing = conn.execute(
+            "SELECT id, product_id FROM product_bom_items WHERE id = ?", (bom_item_id,)
+        ).fetchone()
+        if existing is None:
+            return jsonify({"error": "BOM项目不存在"}), 404
+
+        now = utc_now()
+        conn.execute("DELETE FROM product_bom_items WHERE id = ?", (bom_item_id,))
+        conn.execute("UPDATE products SET updated_at = ? WHERE id = ?", (now, existing["product_id"]))
+        conn.commit()
+        return jsonify({"ok": True})
+
     @app.teardown_appcontext
     def close_connection(_: Optional[BaseException]):
         conn = g.pop("db", None)
@@ -491,6 +643,23 @@ def init_db() -> None:
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_product_images_unique
         ON product_images(product_id, image_path);
+
+        CREATE TABLE IF NOT EXISTS product_bom_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            item_name TEXT NOT NULL,
+            item_spec TEXT NOT NULL DEFAULT '',
+            unit TEXT NOT NULL DEFAULT '',
+            quantity REAL NOT NULL DEFAULT 0,
+            unit_cost REAL NOT NULL DEFAULT 0,
+            remark TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_product_bom_items_product_order
+        ON product_bom_items(product_id, sort_order, id);
         """
     )
     ensure_product_columns(conn)
