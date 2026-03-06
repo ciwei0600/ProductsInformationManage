@@ -525,6 +525,13 @@ button.ghost {
   grid-template-columns: 1fr 220px 100px;
 }
 
+.material-price-editor {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fcfdff;
+  padding: 10px;
+}
+
 .result-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

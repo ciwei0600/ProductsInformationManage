@@ -31,6 +31,7 @@
         <div class="nav-group">
           <div class="nav-level1">生产资料</div>
           <a class="nav-level2" href="#page-material-params" data-page="page-material-params">流量计算</a>
+          <a class="nav-level2" href="#page-material-raw-materials" data-page="page-material-raw-materials">原料价格</a>
           <a class="nav-level2" href="#page-material-packaging" data-page="page-material-packaging">包装数据</a>
           <a class="nav-level2" href="#page-material-cost" data-page="page-material-cost">成本计算</a>
           <a class="nav-level2" href="#page-material-quote" data-page="page-material-quote">报价单</a>
@@ -240,6 +241,48 @@
             </div>
           </div>
           <div class="hint mt12">公式：110*3.14*A^2/3.14/1.6/1.6（A=出水孔径）</div>
+        </section>
+
+        <section class="card content-page" id="page-material-raw-materials">
+          <h2>原料价格</h2>
+          <div class="material-price-editor">
+            <input id="rawMaterialId" type="hidden" />
+            <div class="row">
+              <label for="rawMaterialName">原料种类</label>
+              <input id="rawMaterialName" type="text" placeholder="如 PE、PP、ABS" />
+            </div>
+            <div class="row">
+              <label for="rawMaterialPrice">原料价格</label>
+              <input id="rawMaterialPrice" type="number" min="0" step="0.0001" placeholder="如 8.56（元）" />
+            </div>
+            <div class="row">
+              <label for="rawMaterialRemark">备注</label>
+              <input id="rawMaterialRemark" type="text" placeholder="可选" />
+            </div>
+            <div class="button-row">
+              <button id="saveRawMaterialBtn" type="button">新增原料</button>
+              <button id="cancelRawMaterialEditBtn" type="button" class="ghost" style="display: none">
+                取消修改
+              </button>
+            </div>
+          </div>
+
+          <div class="table-wrap mt12">
+            <table>
+              <thead>
+                <tr>
+                  <th>原料种类</th>
+                  <th>原料价格</th>
+                  <th>备注</th>
+                  <th>更新时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="rawMaterialsBody">
+                <tr><td colspan="5" class="hint">暂无原料价格数据</td></tr>
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section class="card content-page" id="page-material-packaging">

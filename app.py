@@ -543,6 +543,108 @@ def create_app() -> Flask:
         conn.commit()
         return jsonify({"ok": True})
 
+    @app.route("/api/raw-materials", methods=["GET"])
+    def list_raw_materials():
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT id, name, price, remark, created_at, updated_at
+            FROM raw_material_prices
+            ORDER BY name COLLATE NOCASE ASC, id ASC
+            """
+        ).fetchall()
+        return jsonify({"items": [dict(row) for row in rows]})
+
+    @app.route("/api/raw-materials", methods=["POST"])
+    def create_raw_material():
+        payload = request.get_json(silent=True) or {}
+        name = (payload.get("name") or "").strip()
+        remark = (payload.get("remark") or "").strip()
+        if not name:
+            return jsonify({"error": "原料种类不能为空"}), 400
+
+        try:
+            price = float(payload.get("price"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "原料价格格式不正确"}), 400
+        if price < 0:
+            return jsonify({"error": "原料价格不能小于0"}), 400
+
+        conn = get_db()
+        duplicate = conn.execute(
+            "SELECT id FROM raw_material_prices WHERE name = ?",
+            (name,),
+        ).fetchone()
+        if duplicate is not None:
+            return jsonify({"error": "原料种类已存在"}), 400
+
+        now = utc_now()
+        cursor = conn.execute(
+            """
+            INSERT INTO raw_material_prices(name, price, remark, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (name, price, remark, now, now),
+        )
+        conn.commit()
+        return jsonify({"id": int(cursor.lastrowid)})
+
+    @app.route("/api/raw-materials/<int:material_id>", methods=["PUT"])
+    def update_raw_material(material_id: int):
+        payload = request.get_json(silent=True) or {}
+        name = (payload.get("name") or "").strip()
+        remark = (payload.get("remark") or "").strip()
+        if not name:
+            return jsonify({"error": "原料种类不能为空"}), 400
+
+        try:
+            price = float(payload.get("price"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "原料价格格式不正确"}), 400
+        if price < 0:
+            return jsonify({"error": "原料价格不能小于0"}), 400
+
+        conn = get_db()
+        existing = conn.execute(
+            "SELECT id FROM raw_material_prices WHERE id = ?",
+            (material_id,),
+        ).fetchone()
+        if existing is None:
+            return jsonify({"error": "原料不存在"}), 404
+
+        duplicate = conn.execute(
+            "SELECT id FROM raw_material_prices WHERE id != ? AND name = ?",
+            (material_id, name),
+        ).fetchone()
+        if duplicate is not None:
+            return jsonify({"error": "原料种类已存在"}), 400
+
+        now = utc_now()
+        conn.execute(
+            """
+            UPDATE raw_material_prices
+            SET name = ?, price = ?, remark = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, price, remark, now, material_id),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/raw-materials/<int:material_id>", methods=["DELETE"])
+    def delete_raw_material(material_id: int):
+        conn = get_db()
+        existing = conn.execute(
+            "SELECT id FROM raw_material_prices WHERE id = ?",
+            (material_id,),
+        ).fetchone()
+        if existing is None:
+            return jsonify({"error": "原料不存在"}), 404
+
+        conn.execute("DELETE FROM raw_material_prices WHERE id = ?", (material_id,))
+        conn.commit()
+        return jsonify({"ok": True})
+
     @app.teardown_appcontext
     def close_connection(_: Optional[BaseException]):
         conn = g.pop("db", None)
@@ -660,6 +762,15 @@ def init_db() -> None:
 
         CREATE INDEX IF NOT EXISTS idx_product_bom_items_product_order
         ON product_bom_items(product_id, sort_order, id);
+
+        CREATE TABLE IF NOT EXISTS raw_material_prices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            price REAL NOT NULL DEFAULT 0,
+            remark TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
     )
     ensure_product_columns(conn)

@@ -10,10 +10,12 @@ const state = {
   expandedCategoryIds: new Set(),
   categoryAction: "add",
   materialProducts: [],
+  rawMaterials: [],
   quoteLines: [],
   currentProductBomItems: [],
   currentProductBomTotalCost: 0,
   editingBomItemId: null,
+  editingRawMaterialId: null,
 };
 
 function el(id) {
@@ -77,6 +79,12 @@ function formatDecimal(value, fractionDigits = 4) {
   if (!Number.isFinite(number)) return "-";
   if (Number.isInteger(number)) return String(number);
   return number.toFixed(fractionDigits).replace(/\.?0+$/, "");
+}
+
+function formatDateTime(value) {
+  const text = String(value || "").trim();
+  if (!text) return "-";
+  return text.replace("T", " ").replace("Z", "");
 }
 
 function updateEditSelectedProductButtonState() {
@@ -839,6 +847,128 @@ function renderMaterialPackageTable(items) {
   setText("materialPackageSummary", `共 ${items.length} 个产品`);
 }
 
+function resetRawMaterialForm() {
+  state.editingRawMaterialId = null;
+  el("rawMaterialId").value = "";
+  el("rawMaterialName").value = "";
+  el("rawMaterialPrice").value = "";
+  el("rawMaterialRemark").value = "";
+  el("saveRawMaterialBtn").textContent = "新增原料";
+  el("cancelRawMaterialEditBtn").style.display = "none";
+}
+
+function startEditRawMaterial(materialId) {
+  const material = state.rawMaterials.find((item) => item.id === materialId);
+  if (!material) {
+    throw new Error("未找到要修改的原料");
+  }
+
+  state.editingRawMaterialId = materialId;
+  el("rawMaterialId").value = String(material.id);
+  el("rawMaterialName").value = material.name || "";
+  el("rawMaterialPrice").value = formatDecimal(material.price, 6);
+  el("rawMaterialRemark").value = material.remark || "";
+  el("saveRawMaterialBtn").textContent = "保存修改";
+  el("cancelRawMaterialEditBtn").style.display = "";
+}
+
+function renderRawMaterials(items) {
+  const body = el("rawMaterialsBody");
+  state.rawMaterials = [...items];
+
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="5" class="hint">暂无原料价格数据</td></tr>';
+    return;
+  }
+
+  body.innerHTML = items
+    .map((item) => {
+      return `
+      <tr>
+        <td>${escapeHtml(item.name || "-")}</td>
+        <td>¥${toMoney(Number(item.price))}</td>
+        <td>${escapeHtml(item.remark || "-")}</td>
+        <td>${formatDateTime(item.updated_at)}</td>
+        <td>
+          <div class="button-row">
+            <button type="button" data-raw-action="edit" data-id="${item.id}">修改</button>
+            <button type="button" class="danger" data-raw-action="delete" data-id="${item.id}">删除</button>
+          </div>
+        </td>
+      </tr>
+      `;
+    })
+    .join("");
+
+  body.querySelectorAll("button[data-raw-action='edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const materialId = Number(button.dataset.id);
+      try {
+        startEditRawMaterial(materialId);
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+  });
+
+  body.querySelectorAll("button[data-raw-action='delete']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const materialId = Number(button.dataset.id);
+      deleteRawMaterial(materialId).catch((err) => toast(err.message));
+    });
+  });
+}
+
+async function loadRawMaterials() {
+  const data = await request("/api/raw-materials");
+  renderRawMaterials(data.items || []);
+}
+
+async function saveRawMaterial() {
+  const name = el("rawMaterialName").value.trim();
+  const priceText = el("rawMaterialPrice").value.trim();
+  const remark = el("rawMaterialRemark").value.trim();
+
+  if (!name) {
+    throw new Error("原料种类不能为空");
+  }
+  const price = Number(priceText);
+  if (!Number.isFinite(price) || price < 0) {
+    throw new Error("原料价格必须大于等于0");
+  }
+
+  const payload = { name, price, remark };
+  if (state.editingRawMaterialId) {
+    await request(`/api/raw-materials/${state.editingRawMaterialId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("原料价格已修改");
+  } else {
+    await request("/api/raw-materials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("原料价格已新增");
+  }
+
+  resetRawMaterialForm();
+  await loadRawMaterials();
+}
+
+async function deleteRawMaterial(materialId) {
+  if (!materialId) return;
+  if (!window.confirm("确认删除该原料价格？")) return;
+  await request(`/api/raw-materials/${materialId}`, { method: "DELETE" });
+  toast("原料价格已删除");
+  if (state.editingRawMaterialId === materialId) {
+    resetRawMaterialForm();
+  }
+  await loadRawMaterials();
+}
+
 function syncMaterialCostUnitFromSelectedProduct() {
   const product = getMaterialProductById(el("materialCostProduct").value);
   if (!product) {
@@ -1233,6 +1363,18 @@ function bindEvents() {
   el("materialPackageSearchBtn").addEventListener("click", () =>
     refreshMaterialPackagingByFilter().catch((err) => toast(err.message))
   );
+  el("saveRawMaterialBtn").addEventListener("click", () =>
+    saveRawMaterial().catch((err) => toast(err.message))
+  );
+  el("cancelRawMaterialEditBtn").addEventListener("click", () => resetRawMaterialForm());
+  el("rawMaterialName").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    saveRawMaterial().catch((err) => toast(err.message));
+  });
+  el("rawMaterialPrice").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    saveRawMaterial().catch((err) => toast(err.message));
+  });
   el("materialPackageKeyword").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       refreshMaterialPackagingByFilter().catch((err) => toast(err.message));
@@ -1278,12 +1420,13 @@ async function bootstrap() {
   updateEditSelectedProductButtonState();
   initSideNavigation();
   resetProductForm();
+  resetRawMaterialForm();
   setProductImagePanelVisible(false);
   resetMaterialPanels();
   el("quoteDate").value = new Date().toISOString().slice(0, 10);
 
   await Promise.all([loadCategories(), loadStats()]);
-  await Promise.all([loadProducts(), loadMaterialProducts()]);
+  await Promise.all([loadProducts(), loadMaterialProducts(), loadRawMaterials()]);
 }
 
 bootstrap().catch((err) => {
