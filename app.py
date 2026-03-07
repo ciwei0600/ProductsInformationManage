@@ -8,11 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from flask import Flask, g, jsonify, render_template, request, send_from_directory
+from PIL import Image, ImageOps, UnidentifiedImageError
+from flask import Flask, abort, g, jsonify, render_template, request, send_from_directory
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 MEDIA_DIR = DATA_DIR / "media"
+THUMB_DIR = MEDIA_DIR / ".thumbs"
 DB_PATH = DATA_DIR / "pim.db"
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
@@ -23,6 +25,7 @@ def create_app() -> Flask:
     app = Flask(__name__, static_folder="static", template_folder="templates")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    THUMB_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
 
     @app.route("/")
@@ -32,6 +35,16 @@ def create_app() -> Flask:
     @app.route("/media/<path:filename>")
     def media(filename: str):
         return send_from_directory(MEDIA_DIR, filename)
+
+    @app.route("/media-thumb/<path:filename>")
+    def media_thumb(filename: str):
+        size = request.args.get("size", default=160, type=int)
+        size = max(32, min(size, 512))
+        try:
+            thumb_rel_path = ensure_thumbnail(filename, size)
+        except FileNotFoundError:
+            abort(404)
+        return send_from_directory(MEDIA_DIR, thumb_rel_path)
 
     @app.route("/api/health")
     def health():
@@ -2036,6 +2049,58 @@ def delete_media_file(image_path: str) -> None:
     abs_path = MEDIA_DIR / image_path
     if abs_path.exists() and abs_path.is_file():
         abs_path.unlink(missing_ok=True)
+    delete_thumbnail_cache(image_path)
+
+
+def thumbnail_relative_path(image_path: str, size: int) -> Path:
+    original = Path(image_path)
+    return Path(".thumbs") / str(size) / original.parent / f"{original.name}.jpg"
+
+
+def ensure_thumbnail(image_path: str, size: int) -> str:
+    source_path = MEDIA_DIR / image_path
+    if not source_path.exists() or not source_path.is_file():
+        raise FileNotFoundError(image_path)
+
+    thumb_rel_path = thumbnail_relative_path(image_path, size)
+    thumb_abs_path = MEDIA_DIR / thumb_rel_path
+    thumb_abs_path.parent.mkdir(parents=True, exist_ok=True)
+
+    source_mtime = source_path.stat().st_mtime
+    thumb_mtime = thumb_abs_path.stat().st_mtime if thumb_abs_path.exists() else -1
+    if thumb_abs_path.exists() and thumb_mtime >= source_mtime:
+        return str(thumb_rel_path)
+
+    try:
+        with Image.open(source_path) as image:
+            image = ImageOps.exif_transpose(image)
+            if image.mode not in ("RGB", "L"):
+                background = Image.new("RGB", image.size, "#ffffff")
+                alpha_source = image.convert("RGBA")
+                background.paste(alpha_source, mask=alpha_source.getchannel("A"))
+                image = background
+            elif image.mode == "L":
+                image = image.convert("RGB")
+
+            image.thumbnail((size, size))
+            image.save(thumb_abs_path, format="JPEG", quality=82, optimize=True)
+    except (UnidentifiedImageError, OSError):
+        # Fallback to original file if thumbnail generation fails.
+        return image_path
+
+    return str(thumb_rel_path)
+
+
+def delete_thumbnail_cache(image_path: str) -> None:
+    if not THUMB_DIR.exists():
+        return
+    original = Path(image_path)
+    for size_dir in THUMB_DIR.iterdir():
+        if not size_dir.is_dir():
+            continue
+        cached = size_dir / original.parent / f"{original.name}.jpg"
+        if cached.exists() and cached.is_file():
+            cached.unlink(missing_ok=True)
 
 
 app = create_app()

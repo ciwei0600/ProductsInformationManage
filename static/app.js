@@ -573,7 +573,7 @@ function renderCategoryTree() {
           .map((product) => {
             const name = product.chinese_name || product.name || "-";
             const imageBlock = product.first_image
-              ? `<img class="tree-product-thumb" src="/media/${product.first_image}" alt="${name}" />`
+              ? `<img class="tree-product-thumb" src="/media-thumb/${product.first_image}?size=168" alt="${name}" />`
               : '<div class="tree-product-no-image">无图</div>';
             const activeProduct = state.selectedTreeProductId === product.id ? "active" : "";
             const draggingProduct = state.draggingTreeProductId === product.id ? "dragging" : "";
@@ -784,7 +784,7 @@ function renderRecycleBinTree() {
   function renderProductNode(product) {
     const name = product.chinese_name || product.name || "-";
     const imageBlock = product.first_image
-      ? `<img class="tree-product-thumb" src="/media/${product.first_image}" alt="${name}" />`
+      ? `<img class="tree-product-thumb" src="/media-thumb/${product.first_image}?size=168" alt="${name}" />`
       : '<div class="tree-product-no-image">无图</div>';
     return `
       <li class="tree-product-item recycle-product-item">
