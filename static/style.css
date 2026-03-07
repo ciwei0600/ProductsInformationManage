@@ -740,7 +740,8 @@ td {
   font-size: 18px;
 }
 
-#categoryAddModeRow button.active {
+#categoryAddModeRow button.active,
+#boomCategoryAddModeRow button.active {
   border-color: var(--primary);
   background: var(--primary-soft);
   color: #0b5f59;

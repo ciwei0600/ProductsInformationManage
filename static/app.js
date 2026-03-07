@@ -1,6 +1,8 @@
 const state = {
   categories: [],
   categoryTree: [],
+  boomCategories: [],
+  boomCategoryTree: [],
   page: 1,
   pageSize: 20,
   total: 0,
@@ -11,18 +13,18 @@ const state = {
   expandedCategoryIds: new Set(),
   categoryAction: "add",
   categoryAddMode: "child",
+  boomCategoryAction: "add",
+  boomCategoryAddMode: "child",
   materialProducts: [],
   recycleBinProducts: [],
   recycleExpandedCategoryIds: new Set(),
   boomBaseItems: [],
-  rawMaterials: [],
   quoteLines: [],
   currentProductBomItems: [],
   currentProductBoomBaseItems: [],
   currentProductBomTotalCost: 0,
   editingBomItemId: null,
   editingBoomBaseItemId: null,
-  editingRawMaterialId: null,
 };
 
 function el(id) {
@@ -185,10 +187,10 @@ function initSideNavigation() {
   applyByHash();
 }
 
-function categoryPathMap() {
+function buildPathMap(items) {
   const children = new Map();
 
-  for (const item of state.categories) {
+  for (const item of items) {
     if (!children.has(item.parent_id ?? 0)) {
       children.set(item.parent_id ?? 0, []);
     }
@@ -208,6 +210,14 @@ function categoryPathMap() {
 
   walk(0, "");
   return result;
+}
+
+function categoryPathMap() {
+  return buildPathMap(state.categories);
+}
+
+function boomCategoryPathMap() {
+  return buildPathMap(state.boomCategories);
 }
 
 function fillCategorySelect(selectId, includeAll = false) {
@@ -232,6 +242,26 @@ function fillCategorySelect(selectId, includeAll = false) {
   if ([...select.options].some((option) => option.value === currentValue)) {
     select.value = currentValue;
   }
+}
+
+function fillBoomCategorySelect(selectId, includeBlank = true) {
+  const select = el(selectId);
+  if (!select) return;
+  const pathMap = boomCategoryPathMap();
+  const currentValue = select.value;
+
+  let html = includeBlank ? '<option value="">无</option>' : "";
+  for (const category of state.boomCategories) {
+    const path = pathMap.get(category.id) || category.name;
+    html += `<option value="${category.id}">${path}</option>`;
+  }
+
+  select.innerHTML = html;
+  if ([...select.options].some((option) => option.value === currentValue)) {
+    select.value = currentValue;
+    return;
+  }
+  select.value = "";
 }
 
 function setCategoryAction(action) {
@@ -328,6 +358,102 @@ function closeCategoryActionModal() {
 async function confirmCategoryActionFromModal() {
   await applyCategoryAction();
   closeCategoryActionModal();
+}
+
+function setBoomCategoryAction(action) {
+  const hasSelectedCategory = Boolean(state.selectedBoomBaseCategoryId);
+  const finalAction = !hasSelectedCategory && action !== "add" ? "add" : action;
+  state.boomCategoryAction = finalAction;
+
+  document.querySelectorAll("[data-boom-category-action]").forEach((button) => {
+    const active = button.dataset.boomCategoryAction === finalAction;
+    button.classList.toggle("active", active);
+    button.disabled = !hasSelectedCategory;
+  });
+}
+
+function setBoomCategoryAddMode(mode) {
+  state.boomCategoryAddMode = mode === "sibling" ? "sibling" : "child";
+  const siblingBtn = el("boomCategoryAddSiblingBtn");
+  const childBtn = el("boomCategoryAddChildBtn");
+  if (siblingBtn) {
+    siblingBtn.classList.toggle("active", state.boomCategoryAddMode === "sibling");
+  }
+  if (childBtn) {
+    childBtn.classList.toggle("active", state.boomCategoryAddMode === "child");
+  }
+  updateBoomCategoryAddTargetText();
+}
+
+function updateBoomCategoryAddTargetText() {
+  if (state.boomCategoryAction !== "add") return;
+  const target = el("boomCategoryActionModalTarget");
+  const current = state.boomCategories.find((item) => item.id === state.selectedBoomBaseCategoryId);
+  const currentName = current?.name || `BOOM目录 #${state.selectedBoomBaseCategoryId}`;
+  if (state.boomCategoryAddMode === "sibling") {
+    target.textContent = `同级目录：与“${currentName}”同级`;
+    return;
+  }
+  target.textContent = `父级目录：${currentName}`;
+}
+
+function openBoomCategoryActionModal(action) {
+  if (!state.selectedBoomBaseCategoryId) {
+    toast("请先在目录树选择BOOM目录");
+    return;
+  }
+
+  setBoomCategoryAction(action);
+  const modal = el("boomCategoryActionModal");
+  const title = el("boomCategoryActionModalTitle");
+  const target = el("boomCategoryActionModalTarget");
+  const addModeRow = el("boomCategoryAddModeRow");
+  const inputRow = el("boomCategoryActionInputRow");
+  const input = el("boomCategoryActionInput");
+  const confirmBtn = el("boomCategoryActionConfirmBtn");
+  const current = state.boomCategories.find((item) => item.id === state.selectedBoomBaseCategoryId);
+  const currentName = current?.name || `BOOM目录 #${state.selectedBoomBaseCategoryId}`;
+
+  if (state.boomCategoryAction === "delete") {
+    title.textContent = "删除BOOM目录";
+    target.textContent = `将删除：${currentName}`;
+    addModeRow.style.display = "none";
+    inputRow.style.display = "none";
+    input.value = "";
+    confirmBtn.textContent = "确认删除";
+    confirmBtn.classList.add("danger");
+  } else if (state.boomCategoryAction === "rename") {
+    title.textContent = "修改BOOM目录";
+    target.textContent = `当前目录：${currentName}`;
+    addModeRow.style.display = "none";
+    inputRow.style.display = "";
+    input.value = current?.name || "";
+    input.placeholder = "请输入新目录名称";
+    confirmBtn.textContent = "确认修改";
+    confirmBtn.classList.remove("danger");
+    window.setTimeout(() => input.focus(), 0);
+  } else {
+    title.textContent = "新增BOOM目录";
+    addModeRow.style.display = "";
+    inputRow.style.display = "";
+    input.value = "";
+    input.placeholder = "请输入新目录名称";
+    confirmBtn.textContent = "确认新增";
+    confirmBtn.classList.remove("danger");
+    setBoomCategoryAddMode(state.boomCategoryAddMode);
+    window.setTimeout(() => input.focus(), 0);
+  }
+
+  modal.classList.add("show");
+}
+
+function closeBoomCategoryActionModal() {
+  el("boomCategoryActionModal").classList.remove("show");
+}
+
+async function confirmBoomCategoryActionFromModal() {
+  await applyBoomCategoryAction();
+  closeBoomCategoryActionModal();
 }
 
 function renderCategoryTree() {
@@ -736,7 +862,7 @@ function renderProductImages(images) {
 function renderProductBoomBaseSelect(
   items,
   selectedBaseItemId = null,
-  placeholder = "选择目录BOOM基础项（可选）"
+  placeholder = "选择BOOM基础项（可选）"
 ) {
   const select = el("bomBaseItemSelect");
   if (!select) return;
@@ -759,13 +885,13 @@ function renderProductBoomBaseSelect(
   select.value = "";
 }
 
-async function loadProductBoomBaseItems(categoryId, selectedBaseItemId = null) {
-  if (!categoryId) {
+async function loadProductBoomBaseItems(boomCategoryId, selectedBaseItemId = null) {
+  if (!boomCategoryId) {
     state.currentProductBoomBaseItems = [];
-    renderProductBoomBaseSelect([], null, "当前产品未设置目录，无法选择BOOM基础项");
+    renderProductBoomBaseSelect([], null, "当前产品未设置BOOM目录，无法选择BOOM基础项");
     return;
   }
-  const data = await request(`/api/category-boom-base-items?category_id=${categoryId}`);
+  const data = await request(`/api/category-boom-base-items?boom_category_id=${boomCategoryId}`);
   state.currentProductBoomBaseItems = data.items || [];
   renderProductBoomBaseSelect(state.currentProductBoomBaseItems, selectedBaseItemId);
 }
@@ -952,6 +1078,7 @@ function resetProductForm() {
   el("productCode").value = "";
   el("productChineseName").value = "";
   el("productCategory").value = "";
+  el("productBoomCategory").value = "";
   el("productEffect").value = "";
   el("productDescription").value = "";
   el("productSprayRadius").value = "";
@@ -1026,7 +1153,7 @@ async function loadCategories() {
   }
   if (
     state.selectedBoomBaseCategoryId &&
-    !state.categories.some((category) => category.id === state.selectedBoomBaseCategoryId)
+    !state.boomCategories.some((category) => category.id === state.selectedBoomBaseCategoryId)
   ) {
     state.selectedBoomBaseCategoryId = null;
   }
@@ -1034,8 +1161,25 @@ async function loadCategories() {
   setCategoryAction(state.categoryAction);
 
   renderCategoryTree();
-  renderBoomBaseCategoryTree();
   renderRecycleBinTree();
+}
+
+async function loadBoomCategories() {
+  const data = await request("/api/boom-categories");
+  state.boomCategories = data.items || [];
+  state.boomCategoryTree = data.tree || [];
+
+  fillBoomCategorySelect("productBoomCategory");
+
+  if (
+    state.selectedBoomBaseCategoryId &&
+    !state.boomCategories.some((category) => category.id === state.selectedBoomBaseCategoryId)
+  ) {
+    state.selectedBoomBaseCategoryId = null;
+  }
+
+  setBoomCategoryAction(state.boomCategoryAction);
+  renderBoomBaseCategoryTree();
   await loadBoomBaseItems();
 }
 
@@ -1114,12 +1258,12 @@ function renderBoomBaseCategoryTree() {
   const container = el("boomBaseCategoryTree");
   if (!container) return;
 
-  const pathMap = categoryPathMap();
+  const pathMap = boomCategoryPathMap();
   setText(
     "boomBaseCategoryHint",
     state.selectedBoomBaseCategoryId
-      ? `当前目录：${pathMap.get(state.selectedBoomBaseCategoryId) || "未知目录"}`
-      : "请先在目录树中选择一个目录"
+      ? `当前BOOM目录：${pathMap.get(state.selectedBoomBaseCategoryId) || "未知目录"}`
+      : "请先在目录树中选择一个BOOM目录"
   );
 
   function renderNodes(nodes, depth = 0) {
@@ -1141,7 +1285,7 @@ function renderBoomBaseCategoryTree() {
     return html;
   }
 
-  container.innerHTML = renderNodes(state.categoryTree);
+  container.innerHTML = renderNodes(state.boomCategoryTree);
   container.querySelectorAll("[data-boom-category-id]").forEach((item) => {
     item.addEventListener("click", () => {
       const id = Number(item.dataset.boomCategoryId);
@@ -1150,6 +1294,7 @@ function renderBoomBaseCategoryTree() {
       resetBoomBaseForm();
       loadBoomBaseItems().catch((err) => toast(err.message));
       renderBoomBaseCategoryTree();
+      setBoomCategoryAction(state.boomCategoryAction);
     });
   });
 }
@@ -1171,13 +1316,13 @@ function renderBoomBaseItems(items) {
   const body = el("boomBaseItemsBody");
   state.boomBaseItems = [...items];
   if (!items.length) {
-    body.innerHTML = '<tr><td colspan="7" class="hint">当前目录暂无BOOM基础信息</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="hint">当前BOOM目录暂无基础信息</td></tr>';
     return;
   }
 
   body.innerHTML = items
     .map((item) => {
-      const categoryName = item.category_name || "-";
+      const categoryName = item.boom_category_name || item.category_name || "-";
       return `
       <tr>
         <td>${escapeHtml(categoryName)}</td>
@@ -1226,23 +1371,23 @@ function renderBoomBaseItems(items) {
 }
 
 async function loadBoomBaseItems() {
-  const categoryId = Number(state.selectedBoomBaseCategoryId);
-  if (!categoryId) {
+  const boomCategoryId = Number(state.selectedBoomBaseCategoryId);
+  if (!boomCategoryId) {
     state.boomBaseItems = [];
     el("boomBaseItemsBody").innerHTML =
-      '<tr><td colspan="7" class="hint">请选择目录后维护BOOM基础信息</td></tr>';
+      '<tr><td colspan="7" class="hint">请选择BOOM目录后维护BOOM基础信息</td></tr>';
     updateBoomBaseSaveButtonState();
     return;
   }
-  const data = await request(`/api/category-boom-base-items?category_id=${categoryId}`);
+  const data = await request(`/api/category-boom-base-items?boom_category_id=${boomCategoryId}`);
   renderBoomBaseItems(data.items || []);
   updateBoomBaseSaveButtonState();
 }
 
 async function saveBoomBaseItem() {
-  const categoryId = Number(state.selectedBoomBaseCategoryId);
-  if (!categoryId) {
-    throw new Error("请选择目录");
+  const boomCategoryId = Number(state.selectedBoomBaseCategoryId);
+  if (!boomCategoryId) {
+    throw new Error("请选择BOOM目录");
   }
 
   const itemName = el("boomBaseItemName").value.trim();
@@ -1251,7 +1396,7 @@ async function saveBoomBaseItem() {
   }
 
   const payload = {
-    category_id: categoryId,
+    boom_category_id: boomCategoryId,
     item_name: itemName,
     item_spec: el("boomBaseItemSpec").value.trim(),
     unit: el("boomBaseUnit").value.trim(),
@@ -1280,9 +1425,9 @@ async function saveBoomBaseItem() {
 
   const productId = Number(el("productId").value);
   if (productId) {
-    const productCategoryId = Number(el("productCategory").value);
-    if (productCategoryId && productCategoryId === categoryId) {
-      await loadProductBoomBaseItems(productCategoryId);
+    const productBoomCategoryId = Number(el("productBoomCategory").value);
+    if (productBoomCategoryId && productBoomCategoryId === boomCategoryId) {
+      await loadProductBoomBaseItems(productBoomCategoryId);
     }
   }
 }
@@ -1300,133 +1445,11 @@ async function deleteBoomBaseItem(baseItemId) {
 
   const productId = Number(el("productId").value);
   if (productId) {
-    const productCategoryId = Number(el("productCategory").value);
-    if (productCategoryId) {
-      await loadProductBoomBaseItems(productCategoryId);
+    const productBoomCategoryId = Number(el("productBoomCategory").value);
+    if (productBoomCategoryId) {
+      await loadProductBoomBaseItems(productBoomCategoryId);
     }
   }
-}
-
-function resetRawMaterialForm() {
-  state.editingRawMaterialId = null;
-  el("rawMaterialId").value = "";
-  el("rawMaterialName").value = "";
-  el("rawMaterialPrice").value = "";
-  el("rawMaterialRemark").value = "";
-  el("saveRawMaterialBtn").textContent = "新增原料";
-  el("cancelRawMaterialEditBtn").style.display = "none";
-}
-
-function startEditRawMaterial(materialId) {
-  const material = state.rawMaterials.find((item) => item.id === materialId);
-  if (!material) {
-    throw new Error("未找到要修改的原料");
-  }
-
-  state.editingRawMaterialId = materialId;
-  el("rawMaterialId").value = String(material.id);
-  el("rawMaterialName").value = material.name || "";
-  el("rawMaterialPrice").value = formatDecimal(material.price, 6);
-  el("rawMaterialRemark").value = material.remark || "";
-  el("saveRawMaterialBtn").textContent = "保存修改";
-  el("cancelRawMaterialEditBtn").style.display = "";
-}
-
-function renderRawMaterials(items) {
-  const body = el("rawMaterialsBody");
-  state.rawMaterials = [...items];
-
-  if (!items.length) {
-    body.innerHTML = '<tr><td colspan="5" class="hint">暂无原料价格数据</td></tr>';
-    return;
-  }
-
-  body.innerHTML = items
-    .map((item) => {
-      return `
-      <tr>
-        <td>${escapeHtml(item.name || "-")}</td>
-        <td>¥${toMoney(Number(item.price))}</td>
-        <td>${escapeHtml(item.remark || "-")}</td>
-        <td>${formatDateTime(item.updated_at)}</td>
-        <td>
-          <div class="button-row">
-            <button type="button" data-raw-action="edit" data-id="${item.id}">修改</button>
-            <button type="button" class="danger" data-raw-action="delete" data-id="${item.id}">删除</button>
-          </div>
-        </td>
-      </tr>
-      `;
-    })
-    .join("");
-
-  body.querySelectorAll("button[data-raw-action='edit']").forEach((button) => {
-    button.addEventListener("click", () => {
-      const materialId = Number(button.dataset.id);
-      try {
-        startEditRawMaterial(materialId);
-      } catch (err) {
-        toast(err.message);
-      }
-    });
-  });
-
-  body.querySelectorAll("button[data-raw-action='delete']").forEach((button) => {
-    button.addEventListener("click", () => {
-      const materialId = Number(button.dataset.id);
-      deleteRawMaterial(materialId).catch((err) => toast(err.message));
-    });
-  });
-}
-
-async function loadRawMaterials() {
-  const data = await request("/api/raw-materials");
-  renderRawMaterials(data.items || []);
-}
-
-async function saveRawMaterial() {
-  const name = el("rawMaterialName").value.trim();
-  const priceText = el("rawMaterialPrice").value.trim();
-  const remark = el("rawMaterialRemark").value.trim();
-
-  if (!name) {
-    throw new Error("原料种类不能为空");
-  }
-  const price = Number(priceText);
-  if (!Number.isFinite(price) || price < 0) {
-    throw new Error("原料价格必须大于等于0");
-  }
-
-  const payload = { name, price, remark };
-  if (state.editingRawMaterialId) {
-    await request(`/api/raw-materials/${state.editingRawMaterialId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    toast("原料价格已修改");
-  } else {
-    await request("/api/raw-materials", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    toast("原料价格已新增");
-  }
-
-  resetRawMaterialForm();
-  await loadRawMaterials();
-}
-
-async function deleteRawMaterial(materialId) {
-  if (!materialId) return;
-  if (!window.confirm("确认删除该原料价格？")) return;
-  await request(`/api/raw-materials/${materialId}`, { method: "DELETE" });
-  toast("原料价格已删除");
-  if (state.editingRawMaterialId === materialId) {
-    resetRawMaterialForm();
-  }
-  await loadRawMaterials();
 }
 
 function syncMaterialCostUnitFromSelectedProduct() {
@@ -1646,6 +1669,8 @@ async function loadProductDetail(id) {
   el("productCode").value = product.code || "";
   el("productChineseName").value = product.chinese_name || product.name || "";
   el("productCategory").value = product.category_id == null ? "" : String(product.category_id);
+  el("productBoomCategory").value =
+    product.boom_category_id == null ? "" : String(product.boom_category_id);
   el("productEffect").value = product.effect || "";
   el("productDescription").value = product.description || "";
   el("productSprayRadius").value = product.spray_radius || "";
@@ -1661,7 +1686,7 @@ async function loadProductDetail(id) {
 
   renderProductImages(data.images || []);
   resetBomEditor();
-  await loadProductBoomBaseItems(product.category_id);
+  await loadProductBoomBaseItems(product.boom_category_id, null);
   renderBomItems(data.bom_items || [], Number(data.bom_total_cost || 0));
   setBomEditorEnabled(true);
 }
@@ -1734,6 +1759,52 @@ async function applyCategoryAction() {
   await Promise.all([loadCategories(), loadProducts(), loadStats(), loadMaterialProducts()]);
 }
 
+async function applyBoomCategoryAction() {
+  const action = state.boomCategoryAction;
+  const categoryId = state.selectedBoomBaseCategoryId;
+  const name = (el("boomCategoryActionInput")?.value || "").trim();
+
+  if (!categoryId) {
+    throw new Error("请先在目录树选择BOOM目录");
+  }
+
+  if (action === "add") {
+    if (!name) throw new Error("BOOM目录名称不能为空");
+    const current = state.boomCategories.find((item) => item.id === categoryId);
+    const parentId =
+      state.boomCategoryAddMode === "sibling" ? (current?.parent_id ?? null) : categoryId;
+    const created = await request("/api/boom-categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        parent_id: parentId,
+      }),
+    });
+    state.selectedBoomBaseCategoryId = created.id || state.selectedBoomBaseCategoryId;
+    toast("BOOM目录已新增");
+    await Promise.all([loadBoomCategories(), loadProducts(), loadMaterialProducts()]);
+    return;
+  }
+
+  if (action === "rename") {
+    if (!name) throw new Error("BOOM目录名称不能为空");
+    await request(`/api/boom-categories/${categoryId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    toast("BOOM目录已重命名");
+    await Promise.all([loadBoomCategories(), loadProducts(), loadMaterialProducts()]);
+    return;
+  }
+
+  await request(`/api/boom-categories/${categoryId}`, { method: "DELETE" });
+  state.selectedBoomBaseCategoryId = null;
+  toast("BOOM目录已删除");
+  await Promise.all([loadBoomCategories(), loadProducts(), loadMaterialProducts()]);
+}
+
 async function saveProduct() {
   setProductCodeError("");
   const productId = el("productId").value;
@@ -1741,6 +1812,7 @@ async function saveProduct() {
     code: el("productCode").value.trim(),
     chinese_name: el("productChineseName").value.trim(),
     category_id: el("productCategory").value ? Number(el("productCategory").value) : null,
+    boom_category_id: el("productBoomCategory").value ? Number(el("productBoomCategory").value) : null,
     effect: el("productEffect").value.trim(),
     description: el("productDescription").value.trim(),
     spray_radius: el("productSprayRadius").value.trim(),
@@ -1823,6 +1895,31 @@ function bindEvents() {
       openCategoryActionModal(button.dataset.categoryAction || "add");
     });
   });
+  el("boomCategoryActionConfirmBtn").addEventListener("click", () =>
+    confirmBoomCategoryActionFromModal().catch((err) => toast(err.message))
+  );
+  el("boomCategoryActionCancelBtn").addEventListener("click", closeBoomCategoryActionModal);
+  el("boomCategoryActionModal").addEventListener("click", (event) => {
+    if (event.target === el("boomCategoryActionModal")) {
+      closeBoomCategoryActionModal();
+    }
+  });
+  el("boomCategoryActionInput").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    confirmBoomCategoryActionFromModal().catch((err) => toast(err.message));
+  });
+  el("boomCategoryAddSiblingBtn").addEventListener("click", () => {
+    setBoomCategoryAddMode("sibling");
+  });
+  el("boomCategoryAddChildBtn").addEventListener("click", () => {
+    setBoomCategoryAddMode("child");
+  });
+  document.querySelectorAll("[data-boom-category-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.disabled) return;
+      openBoomCategoryActionModal(button.dataset.boomCategoryAction || "add");
+    });
+  });
 
   el("searchBtn").addEventListener("click", () => {
     state.page = 1;
@@ -1842,6 +1939,12 @@ function bindEvents() {
   });
 
   el("productCode").addEventListener("input", () => setProductCodeError(""));
+  el("productBoomCategory").addEventListener("change", () => {
+    resetBomEditor();
+    loadProductBoomBaseItems(Number(el("productBoomCategory").value) || null).catch((err) =>
+      toast(err.message)
+    );
+  });
   el("saveProductBtn").addEventListener("click", () => {
     saveProduct().catch((err) => {
       const conflict = err?.payload?.conflict;
@@ -1892,10 +1995,6 @@ function bindEvents() {
     saveBoomBaseItem().catch((err) => toast(err.message))
   );
   el("cancelBoomBaseEditBtn").addEventListener("click", () => resetBoomBaseForm());
-  el("saveRawMaterialBtn").addEventListener("click", () =>
-    saveRawMaterial().catch((err) => toast(err.message))
-  );
-  el("cancelRawMaterialEditBtn").addEventListener("click", () => resetRawMaterialForm());
   el("materialPackageKeyword").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       refreshMaterialPackagingByFilter().catch((err) => toast(err.message));
@@ -1938,18 +2037,18 @@ function bindEvents() {
 async function bootstrap() {
   bindEvents();
   setCategoryAction("add");
+  setBoomCategoryAction("add");
   updateEditSelectedProductButtonState();
   updateDeleteProductButtonState();
   initSideNavigation();
   resetProductForm();
   resetBoomBaseForm();
-  resetRawMaterialForm();
   setProductImagePanelVisible(false);
   resetMaterialPanels();
   el("quoteDate").value = new Date().toISOString().slice(0, 10);
 
-  await Promise.all([loadCategories(), loadStats()]);
-  await Promise.all([loadProducts(), loadMaterialProducts(), loadRawMaterials(), loadRecycleBinProducts()]);
+  await Promise.all([loadCategories(), loadBoomCategories(), loadStats()]);
+  await Promise.all([loadProducts(), loadMaterialProducts(), loadRecycleBinProducts()]);
 }
 
 bootstrap().catch((err) => {

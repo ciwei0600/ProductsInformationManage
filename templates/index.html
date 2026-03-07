@@ -33,7 +33,6 @@
           <div class="nav-level1">生产资料</div>
           <a class="nav-level2" href="#page-material-params" data-page="page-material-params">流量计算</a>
           <a class="nav-level2" href="#page-material-boom-base" data-page="page-material-boom-base">BOOM基础信息</a>
-          <a class="nav-level2" href="#page-material-raw-materials" data-page="page-material-raw-materials">原料价格</a>
           <a class="nav-level2" href="#page-material-packaging" data-page="page-material-packaging">包装数据</a>
           <a class="nav-level2" href="#page-material-cost" data-page="page-material-cost">成本计算</a>
           <a class="nav-level2" href="#page-material-quote" data-page="page-material-quote">报价单</a>
@@ -137,6 +136,10 @@
                   <select id="productCategory"></select>
                 </div>
                 <div class="row">
+                  <label for="productBoomCategory">BOOM目录</label>
+                  <select id="productBoomCategory"></select>
+                </div>
+                <div class="row">
                   <label for="productEffect">作用</label>
                   <textarea id="productEffect" rows="2" placeholder="产品作用"></textarea>
                 </div>
@@ -176,7 +179,7 @@
                 <div id="bomEditor" class="bom-editor">
                   <div class="bom-input-grid">
                     <select id="bomBaseItemSelect">
-                      <option value="">选择目录BOOM基础项（可选）</option>
+                      <option value="">选择BOOM基础项（可选）</option>
                     </select>
                     <input id="bomItemName" type="text" placeholder="项目名称（必填）" />
                     <input id="bomItemSpec" type="text" placeholder="规格（可选）" />
@@ -259,8 +262,13 @@
           <h2>BOOM基础信息</h2>
           <div class="boom-base-layout">
             <div class="boom-base-tree-zone">
+              <div class="action-tabs" id="boomCategoryActionTabs">
+                <button type="button" class="action-tab active" data-boom-category-action="add">新增</button>
+                <button type="button" class="action-tab" data-boom-category-action="rename">修改</button>
+                <button type="button" class="action-tab danger" data-boom-category-action="delete">删除</button>
+              </div>
               <h3>目录树</h3>
-              <div id="boomBaseCategoryHint" class="hint">请先在目录树中选择一个目录</div>
+              <div id="boomBaseCategoryHint" class="hint">请先在目录树中选择一个BOOM目录</div>
               <ul id="boomBaseCategoryTree" class="tree mt12"></ul>
             </div>
 
@@ -279,8 +287,8 @@
                 <input id="boomBaseUnit" type="text" placeholder="可选，如 个、米、克" />
               </div>
               <div class="row">
-                <label for="boomBaseDefaultUnitCost">默认单价</label>
-                <input id="boomBaseDefaultUnitCost" type="number" min="0" step="0.0001" placeholder="可选，默认0" />
+                <label for="boomBaseDefaultUnitCost">原料价格</label>
+                <input id="boomBaseDefaultUnitCost" type="number" min="0" step="0.0001" placeholder="原料价格，可选，默认0" />
               </div>
               <div class="row">
                 <label for="boomBaseRemark">备注</label>
@@ -299,59 +307,17 @@
             <table>
               <thead>
                 <tr>
-                  <th>目录</th>
+                  <th>BOOM目录</th>
                   <th>项目名称</th>
                   <th>规格</th>
                   <th>单位</th>
-                  <th>默认单价</th>
+                  <th>原料价格</th>
                   <th>备注</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody id="boomBaseItemsBody">
-                <tr><td colspan="7" class="hint">请选择目录后维护BOOM基础信息</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="card content-page" id="page-material-raw-materials">
-          <h2>原料价格</h2>
-          <div class="material-price-editor">
-            <input id="rawMaterialId" type="hidden" />
-            <div class="row">
-              <label for="rawMaterialName">原料种类</label>
-              <input id="rawMaterialName" type="text" placeholder="如 PE、PP、ABS" />
-            </div>
-            <div class="row">
-              <label for="rawMaterialPrice">原料价格</label>
-              <input id="rawMaterialPrice" type="number" min="0" step="0.0001" placeholder="如 8.56（元）" />
-            </div>
-            <div class="row">
-              <label for="rawMaterialRemark">备注</label>
-              <input id="rawMaterialRemark" type="text" placeholder="可选" />
-            </div>
-            <div class="button-row">
-              <button id="saveRawMaterialBtn" type="button">新增原料</button>
-              <button id="cancelRawMaterialEditBtn" type="button" class="ghost" style="display: none">
-                取消修改
-              </button>
-            </div>
-          </div>
-
-          <div class="table-wrap mt12">
-            <table>
-              <thead>
-                <tr>
-                  <th>原料种类</th>
-                  <th>原料价格</th>
-                  <th>备注</th>
-                  <th>更新时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="rawMaterialsBody">
-                <tr><td colspan="5" class="hint">暂无原料价格数据</td></tr>
+                <tr><td colspan="7" class="hint">请选择BOOM目录后维护BOOM基础信息</td></tr>
               </tbody>
             </table>
           </div>
@@ -484,6 +450,28 @@
         <div class="button-row mt12">
           <button id="categoryActionConfirmBtn">确认</button>
           <button id="categoryActionCancelBtn" class="ghost" type="button">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="boomCategoryActionModal" class="category-action-modal">
+      <div class="category-action-dialog">
+        <h3 id="boomCategoryActionModalTitle">BOOM目录操作</h3>
+        <div id="boomCategoryActionModalTarget" class="hint"></div>
+        <div id="boomCategoryAddModeRow" class="mt12" style="display: none">
+          <div class="hint">新增方式</div>
+          <div class="button-row mt12">
+            <button id="boomCategoryAddSiblingBtn" type="button" class="ghost">新增平级</button>
+            <button id="boomCategoryAddChildBtn" type="button" class="ghost">新增下级</button>
+          </div>
+        </div>
+        <div id="boomCategoryActionInputRow" class="row mt12">
+          <label for="boomCategoryActionInput">名称</label>
+          <input id="boomCategoryActionInput" type="text" placeholder="BOOM目录名称" />
+        </div>
+        <div class="button-row mt12">
+          <button id="boomCategoryActionConfirmBtn">确认</button>
+          <button id="boomCategoryActionCancelBtn" class="ghost" type="button">取消</button>
         </div>
       </div>
     </div>

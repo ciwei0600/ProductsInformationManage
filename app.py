@@ -152,6 +152,105 @@ def create_app() -> Flask:
         conn.commit()
         return jsonify({"ok": True})
 
+    @app.route("/api/boom-categories", methods=["GET"])
+    def list_boom_categories():
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT id, name, parent_id, created_at
+            FROM boom_categories
+            ORDER BY COALESCE(parent_id, 0), id
+            """
+        ).fetchall()
+        items = [dict(row) for row in rows]
+        tree = build_category_tree(items)
+        return jsonify({"items": items, "tree": tree})
+
+    @app.route("/api/boom-categories", methods=["POST"])
+    def create_boom_category():
+        payload = request.get_json(silent=True) or {}
+        name = (payload.get("name") or "").strip()
+        parent_id = payload.get("parent_id")
+
+        if not name:
+            return jsonify({"error": "目录名称不能为空"}), 400
+
+        conn = get_db()
+        if parent_id is not None:
+            parent_exists = conn.execute(
+                "SELECT 1 FROM boom_categories WHERE id = ?", (parent_id,)
+            ).fetchone()
+            if parent_exists is None:
+                return jsonify({"error": "父级目录不存在"}), 400
+
+        category_id = get_or_create_boom_category(conn, name, parent_id)
+        conn.commit()
+        return jsonify({"id": category_id, "name": name, "parent_id": parent_id})
+
+    @app.route("/api/boom-categories/<int:category_id>", methods=["PUT"])
+    def update_boom_category(category_id: int):
+        payload = request.get_json(silent=True) or {}
+        name = (payload.get("name") or "").strip()
+
+        if not name:
+            return jsonify({"error": "目录名称不能为空"}), 400
+
+        conn = get_db()
+        current = conn.execute(
+            "SELECT id, parent_id FROM boom_categories WHERE id = ?", (category_id,)
+        ).fetchone()
+        if current is None:
+            return jsonify({"error": "目录不存在"}), 404
+
+        parent_id = current["parent_id"]
+        if parent_id is None:
+            duplicate = conn.execute(
+                "SELECT 1 FROM boom_categories WHERE id != ? AND parent_id IS NULL AND name = ?",
+                (category_id, name),
+            ).fetchone()
+        else:
+            duplicate = conn.execute(
+                "SELECT 1 FROM boom_categories WHERE id != ? AND parent_id = ? AND name = ?",
+                (category_id, parent_id, name),
+            ).fetchone()
+
+        if duplicate is not None:
+            return jsonify({"error": "同级目录下已存在同名目录"}), 400
+
+        conn.execute("UPDATE boom_categories SET name = ? WHERE id = ?", (name, category_id))
+        conn.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/boom-categories/<int:category_id>", methods=["DELETE"])
+    def delete_boom_category(category_id: int):
+        conn = get_db()
+        exists = conn.execute(
+            "SELECT 1 FROM boom_categories WHERE id = ?", (category_id,)
+        ).fetchone()
+        if exists is None:
+            return jsonify({"error": "目录不存在"}), 404
+
+        subtree_ids = get_descendant_boom_category_ids(conn, category_id)
+        placeholders = ",".join("?" for _ in subtree_ids)
+
+        item_count = conn.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM category_boom_base_items
+            WHERE boom_category_id IN ({placeholders})
+            """,
+            subtree_ids,
+        ).fetchone()[0]
+        if item_count > 0:
+            return jsonify({"error": "目录下有BOOM基础项，只有空目录才能删除"}), 400
+
+        if len(subtree_ids) > 1:
+            return jsonify({"error": "目录下有子目录，只有空目录才能删除"}), 400
+
+        conn.execute("DELETE FROM boom_categories WHERE id = ?", (category_id,))
+        conn.commit()
+        return jsonify({"ok": True})
+
     @app.route("/api/products", methods=["GET"])
     def list_products():
         conn = get_db()
@@ -263,11 +362,14 @@ def create_app() -> Flask:
                 p.package_size,
                 p.gross_weight,
                 p.category_id,
+                p.boom_category_id,
                 p.created_at,
                 p.updated_at,
-                c.name AS category_name
+                c.name AS category_name,
+                bc.name AS boom_category_name
             FROM products p
             LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN boom_categories bc ON bc.id = p.boom_category_id
             WHERE p.id = ? AND COALESCE(p.is_deleted, 0) = 0
             """,
             (product_id,),
@@ -735,16 +837,18 @@ def create_app() -> Flask:
     @app.route("/api/category-boom-base-items", methods=["GET"])
     def list_category_boom_base_items():
         conn = get_db()
-        category_id = request.args.get("category_id", type=int)
-        if not category_id:
+        boom_category_id = request.args.get("boom_category_id", type=int) or request.args.get(
+            "category_id", type=int
+        )
+        if not boom_category_id:
             return jsonify({"items": []})
 
         rows = conn.execute(
             """
             SELECT
                 cbi.id,
-                cbi.category_id,
-                c.name AS category_name,
+                cbi.boom_category_id,
+                bc.name AS boom_category_name,
                 cbi.item_name,
                 cbi.item_spec,
                 cbi.unit,
@@ -754,11 +858,11 @@ def create_app() -> Flask:
                 cbi.created_at,
                 cbi.updated_at
             FROM category_boom_base_items cbi
-            LEFT JOIN categories c ON c.id = cbi.category_id
-            WHERE cbi.category_id = ?
+            LEFT JOIN boom_categories bc ON bc.id = cbi.boom_category_id
+            WHERE cbi.boom_category_id = ?
             ORDER BY cbi.sort_order, cbi.id
             """,
-            (category_id,),
+            (boom_category_id,),
         ).fetchall()
         return jsonify({"items": [dict(row) for row in rows]})
 
@@ -767,13 +871,15 @@ def create_app() -> Flask:
         conn = get_db()
         payload = request.get_json(silent=True) or {}
         try:
-            category_id = int(payload.get("category_id"))
+            boom_category_id = int(payload.get("boom_category_id") or payload.get("category_id"))
         except (TypeError, ValueError):
-            return jsonify({"error": "请选择目录"}), 400
+            return jsonify({"error": "请选择BOOM目录"}), 400
 
-        category = conn.execute("SELECT id FROM categories WHERE id = ?", (category_id,)).fetchone()
+        category = conn.execute(
+            "SELECT id FROM boom_categories WHERE id = ?", (boom_category_id,)
+        ).fetchone()
         if category is None:
-            return jsonify({"error": "目录不存在"}), 400
+            return jsonify({"error": "BOOM目录不存在"}), 400
 
         item_name = (payload.get("item_name") or "").strip()
         item_spec = (payload.get("item_spec") or "").strip()
@@ -793,27 +899,27 @@ def create_app() -> Flask:
             """
             SELECT id
             FROM category_boom_base_items
-            WHERE category_id = ? AND item_name = ? AND item_spec = ? AND unit = ?
+            WHERE boom_category_id = ? AND item_name = ? AND item_spec = ? AND unit = ?
             """,
-            (category_id, item_name, item_spec, unit),
+            (boom_category_id, item_name, item_spec, unit),
         ).fetchone()
         if duplicate is not None:
-            return jsonify({"error": "当前目录已存在同名同规格基础项"}), 400
+            return jsonify({"error": "当前BOOM目录已存在同名同规格基础项"}), 400
 
         sort_order = conn.execute(
-            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM category_boom_base_items WHERE category_id = ?",
-            (category_id,),
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM category_boom_base_items WHERE boom_category_id = ?",
+            (boom_category_id,),
         ).fetchone()[0]
         now = utc_now()
         cursor = conn.execute(
             """
             INSERT INTO category_boom_base_items(
-                category_id, item_name, item_spec, unit, default_unit_cost, remark, sort_order, created_at, updated_at
+                boom_category_id, item_name, item_spec, unit, default_unit_cost, remark, sort_order, created_at, updated_at
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                category_id,
+                boom_category_id,
                 item_name,
                 item_spec,
                 unit,
@@ -831,7 +937,7 @@ def create_app() -> Flask:
     def update_category_boom_base_item(base_item_id: int):
         conn = get_db()
         existing = conn.execute(
-            "SELECT id, category_id FROM category_boom_base_items WHERE id = ?",
+            "SELECT id, boom_category_id FROM category_boom_base_items WHERE id = ?",
             (base_item_id,),
         ).fetchone()
         if existing is None:
@@ -852,17 +958,17 @@ def create_app() -> Flask:
         if default_unit_cost < 0:
             return jsonify({"error": "默认单价不能小于0"}), 400
 
-        category_id = int(existing["category_id"])
+        boom_category_id = int(existing["boom_category_id"])
         duplicate = conn.execute(
             """
             SELECT id
             FROM category_boom_base_items
-            WHERE id != ? AND category_id = ? AND item_name = ? AND item_spec = ? AND unit = ?
+            WHERE id != ? AND boom_category_id = ? AND item_name = ? AND item_spec = ? AND unit = ?
             """,
-            (base_item_id, category_id, item_name, item_spec, unit),
+            (base_item_id, boom_category_id, item_name, item_spec, unit),
         ).fetchone()
         if duplicate is not None:
-            return jsonify({"error": "当前目录已存在同名同规格基础项"}), 400
+            return jsonify({"error": "当前BOOM目录已存在同名同规格基础项"}), 400
 
         now = utc_now()
         conn.execute(
@@ -887,108 +993,6 @@ def create_app() -> Flask:
             return jsonify({"error": "BOOM基础项不存在"}), 404
 
         conn.execute("DELETE FROM category_boom_base_items WHERE id = ?", (base_item_id,))
-        conn.commit()
-        return jsonify({"ok": True})
-
-    @app.route("/api/raw-materials", methods=["GET"])
-    def list_raw_materials():
-        conn = get_db()
-        rows = conn.execute(
-            """
-            SELECT id, name, price, remark, created_at, updated_at
-            FROM raw_material_prices
-            ORDER BY name COLLATE NOCASE ASC, id ASC
-            """
-        ).fetchall()
-        return jsonify({"items": [dict(row) for row in rows]})
-
-    @app.route("/api/raw-materials", methods=["POST"])
-    def create_raw_material():
-        payload = request.get_json(silent=True) or {}
-        name = (payload.get("name") or "").strip()
-        remark = (payload.get("remark") or "").strip()
-        if not name:
-            return jsonify({"error": "原料种类不能为空"}), 400
-
-        try:
-            price = float(payload.get("price"))
-        except (TypeError, ValueError):
-            return jsonify({"error": "原料价格格式不正确"}), 400
-        if price < 0:
-            return jsonify({"error": "原料价格不能小于0"}), 400
-
-        conn = get_db()
-        duplicate = conn.execute(
-            "SELECT id FROM raw_material_prices WHERE name = ?",
-            (name,),
-        ).fetchone()
-        if duplicate is not None:
-            return jsonify({"error": "原料种类已存在"}), 400
-
-        now = utc_now()
-        cursor = conn.execute(
-            """
-            INSERT INTO raw_material_prices(name, price, remark, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (name, price, remark, now, now),
-        )
-        conn.commit()
-        return jsonify({"id": int(cursor.lastrowid)})
-
-    @app.route("/api/raw-materials/<int:material_id>", methods=["PUT"])
-    def update_raw_material(material_id: int):
-        payload = request.get_json(silent=True) or {}
-        name = (payload.get("name") or "").strip()
-        remark = (payload.get("remark") or "").strip()
-        if not name:
-            return jsonify({"error": "原料种类不能为空"}), 400
-
-        try:
-            price = float(payload.get("price"))
-        except (TypeError, ValueError):
-            return jsonify({"error": "原料价格格式不正确"}), 400
-        if price < 0:
-            return jsonify({"error": "原料价格不能小于0"}), 400
-
-        conn = get_db()
-        existing = conn.execute(
-            "SELECT id FROM raw_material_prices WHERE id = ?",
-            (material_id,),
-        ).fetchone()
-        if existing is None:
-            return jsonify({"error": "原料不存在"}), 404
-
-        duplicate = conn.execute(
-            "SELECT id FROM raw_material_prices WHERE id != ? AND name = ?",
-            (material_id, name),
-        ).fetchone()
-        if duplicate is not None:
-            return jsonify({"error": "原料种类已存在"}), 400
-
-        now = utc_now()
-        conn.execute(
-            """
-            UPDATE raw_material_prices
-            SET name = ?, price = ?, remark = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (name, price, remark, now, material_id),
-        )
-        conn.commit()
-        return jsonify({"ok": True})
-
-    @app.route("/api/raw-materials/<int:material_id>", methods=["DELETE"])
-    def delete_raw_material(material_id: int):
-        conn = get_db()
-        existing = conn.execute(
-            "SELECT id FROM raw_material_prices WHERE id = ?",
-            (material_id,),
-        ).fetchone()
-        if existing is None:
-            return jsonify({"error": "原料不存在"}), 404
-
-        conn.execute("DELETE FROM raw_material_prices WHERE id = ?", (material_id,))
         conn.commit()
         return jsonify({"ok": True})
 
@@ -1065,6 +1069,16 @@ def init_db() -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name_parent
         ON categories(name, COALESCE(parent_id, -1));
 
+        CREATE TABLE IF NOT EXISTS boom_categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            parent_id INTEGER REFERENCES boom_categories(id) ON DELETE RESTRICT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_boom_categories_name_parent
+        ON boom_categories(name, COALESCE(parent_id, -1));
+
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT NOT NULL UNIQUE,
@@ -1097,7 +1111,7 @@ def init_db() -> None:
 
         CREATE TABLE IF NOT EXISTS category_boom_base_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+            boom_category_id INTEGER NOT NULL REFERENCES boom_categories(id) ON DELETE CASCADE,
             item_name TEXT NOT NULL,
             item_spec TEXT NOT NULL DEFAULT '',
             unit TEXT NOT NULL DEFAULT '',
@@ -1107,9 +1121,6 @@ def init_db() -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
-
-        CREATE INDEX IF NOT EXISTS idx_category_boom_base_items_category_order
-        ON category_boom_base_items(category_id, sort_order, id);
 
         CREATE TABLE IF NOT EXISTS product_bom_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1129,18 +1140,15 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_product_bom_items_product_order
         ON product_bom_items(product_id, sort_order, id);
 
-        CREATE TABLE IF NOT EXISTS raw_material_prices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            price REAL NOT NULL DEFAULT 0,
-            remark TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
         """
     )
     ensure_product_columns(conn)
+    migrate_boom_tables_if_needed(conn)
     ensure_product_bom_columns(conn)
+    ensure_boom_base_columns(conn)
+    seed_boom_categories_from_product_categories(conn)
+    backfill_boom_base_categories(conn)
+    backfill_product_boom_categories(conn)
     conn.commit()
     conn.close()
 
@@ -1158,6 +1166,7 @@ def ensure_product_columns(conn: sqlite3.Connection) -> None:
         "package_quantity": "TEXT NOT NULL DEFAULT ''",
         "package_size": "TEXT NOT NULL DEFAULT ''",
         "gross_weight": "TEXT NOT NULL DEFAULT ''",
+        "boom_category_id": "INTEGER REFERENCES boom_categories(id) ON DELETE SET NULL",
         "is_deleted": "INTEGER NOT NULL DEFAULT 0",
         "deleted_at": "TEXT",
     }
@@ -1182,6 +1191,90 @@ def ensure_product_columns(conn: sqlite3.Connection) -> None:
     )
 
 
+def migrate_boom_tables_if_needed(conn: sqlite3.Connection) -> None:
+    boom_columns = conn.execute("PRAGMA table_info(category_boom_base_items)").fetchall()
+    boom_column_names = {row[1] for row in boom_columns}
+    legacy_boom_schema = "category_id" in boom_column_names
+
+    if not legacy_boom_schema:
+        return
+
+    base_item_expr = "COALESCE(boom_category_id, category_id)" if "boom_category_id" in boom_column_names else "category_id"
+
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("ALTER TABLE product_bom_items RENAME TO product_bom_items_legacy")
+    conn.execute("ALTER TABLE category_boom_base_items RENAME TO category_boom_base_items_legacy")
+    conn.executescript(
+        """
+        CREATE TABLE category_boom_base_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            boom_category_id INTEGER NOT NULL REFERENCES boom_categories(id) ON DELETE CASCADE,
+            item_name TEXT NOT NULL,
+            item_spec TEXT NOT NULL DEFAULT '',
+            unit TEXT NOT NULL DEFAULT '',
+            default_unit_cost REAL NOT NULL DEFAULT 0,
+            remark TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE product_bom_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            base_item_id INTEGER REFERENCES category_boom_base_items(id) ON DELETE SET NULL,
+            item_name TEXT NOT NULL,
+            item_spec TEXT NOT NULL DEFAULT '',
+            unit TEXT NOT NULL DEFAULT '',
+            quantity REAL NOT NULL DEFAULT 0,
+            unit_cost REAL NOT NULL DEFAULT 0,
+            remark TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+    conn.execute(
+        f"""
+        INSERT INTO category_boom_base_items(
+            id, boom_category_id, item_name, item_spec, unit, default_unit_cost, remark, sort_order, created_at, updated_at
+        )
+        SELECT
+            id,
+            {base_item_expr},
+            item_name,
+            item_spec,
+            unit,
+            default_unit_cost,
+            remark,
+            sort_order,
+            created_at,
+            updated_at
+        FROM category_boom_base_items_legacy
+        """,
+    )
+    conn.execute(
+        """
+        INSERT INTO product_bom_items(
+            id, product_id, base_item_id, item_name, item_spec, unit, quantity, unit_cost, remark, sort_order,
+            created_at, updated_at
+        )
+        SELECT
+            id, product_id, base_item_id, item_name, item_spec, unit, quantity, unit_cost, remark, sort_order,
+            created_at, updated_at
+        FROM product_bom_items_legacy
+        """
+    )
+    conn.executescript(
+        """
+        DROP TABLE category_boom_base_items_legacy;
+        DROP TABLE product_bom_items_legacy;
+        """
+    )
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
 def ensure_product_bom_columns(conn: sqlite3.Connection) -> None:
     existing_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(product_bom_items)").fetchall()
@@ -1197,6 +1290,81 @@ def ensure_product_bom_columns(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_product_bom_items_base_item
         ON product_bom_items(base_item_id)
+        """
+    )
+
+
+def ensure_boom_base_columns(conn: sqlite3.Connection) -> None:
+    existing_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(category_boom_base_items)").fetchall()
+    }
+    if "boom_category_id" not in existing_columns:
+        conn.execute(
+            """
+            ALTER TABLE category_boom_base_items
+            ADD COLUMN boom_category_id INTEGER REFERENCES boom_categories(id) ON DELETE CASCADE
+            """
+        )
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_category_boom_base_items_boom_category_order
+        ON category_boom_base_items(boom_category_id, sort_order, id)
+        """
+    )
+
+
+def seed_boom_categories_from_product_categories(conn: sqlite3.Connection) -> None:
+    boom_count = conn.execute("SELECT COUNT(*) FROM boom_categories").fetchone()[0]
+    if boom_count:
+        return
+
+    rows = conn.execute(
+        "SELECT id, name, parent_id, created_at FROM categories ORDER BY COALESCE(parent_id, 0), id"
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            """
+            INSERT INTO boom_categories(id, name, parent_id, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                row[0],
+                row[1],
+                row[2],
+                row[3] or utc_now(),
+            ),
+        )
+
+
+def backfill_product_boom_categories(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        UPDATE products
+        SET boom_category_id = category_id
+        WHERE boom_category_id IS NULL
+          AND category_id IS NOT NULL
+          AND EXISTS (SELECT 1 FROM boom_categories bc WHERE bc.id = products.category_id)
+        """
+    )
+
+
+def backfill_boom_base_categories(conn: sqlite3.Connection) -> None:
+    existing_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(category_boom_base_items)").fetchall()
+    }
+    if "category_id" not in existing_columns:
+        return
+
+    conn.execute(
+        """
+        UPDATE category_boom_base_items
+        SET boom_category_id = category_id
+        WHERE boom_category_id IS NULL
+          AND category_id IS NOT NULL
+          AND EXISTS (
+              SELECT 1 FROM boom_categories bc WHERE bc.id = category_boom_base_items.category_id
+          )
         """
     )
 
@@ -1238,6 +1406,21 @@ def get_descendant_category_ids(conn: sqlite3.Connection, category_id: int) -> l
     return [row["id"] for row in rows]
 
 
+def get_descendant_boom_category_ids(conn: sqlite3.Connection, category_id: int) -> list[int]:
+    rows = conn.execute(
+        """
+        WITH RECURSIVE tree(id) AS (
+            SELECT id FROM boom_categories WHERE id = ?
+            UNION ALL
+            SELECT c.id FROM boom_categories c JOIN tree t ON c.parent_id = t.id
+        )
+        SELECT id FROM tree
+        """,
+        (category_id,),
+    ).fetchall()
+    return [row["id"] for row in rows]
+
+
 def parse_optional_int(value: Any, field_name: str) -> Optional[int]:
     if value in ("", None):
         return None
@@ -1257,19 +1440,19 @@ def resolve_boom_base_item_for_product(
         return None
 
     product = conn.execute(
-        "SELECT id, category_id FROM products WHERE id = ?",
+        "SELECT id, boom_category_id FROM products WHERE id = ?",
         (product_id,),
     ).fetchone()
     if product is None:
         raise ValueError("产品不存在")
 
-    product_category_id = product["category_id"]
-    if product_category_id is None:
-        raise ValueError("产品未设置目录，不能选择BOOM基础项")
+    product_boom_category_id = product["boom_category_id"]
+    if product_boom_category_id is None:
+        raise ValueError("产品未设置BOOM目录，不能选择BOOM基础项")
 
     base_item = conn.execute(
         """
-        SELECT id, category_id, item_name, item_spec, unit, default_unit_cost
+        SELECT id, boom_category_id, item_name, item_spec, unit, default_unit_cost
         FROM category_boom_base_items
         WHERE id = ?
         """,
@@ -1278,8 +1461,11 @@ def resolve_boom_base_item_for_product(
     if base_item is None:
         raise ValueError("BOOM基础项不存在")
 
-    if int(base_item["category_id"]) != int(product_category_id):
-        raise ValueError("只能选择同目录下的BOOM基础项")
+    if base_item["boom_category_id"] is None:
+        raise ValueError("BOOM基础项未设置目录")
+
+    if int(base_item["boom_category_id"]) != int(product_boom_category_id):
+        raise ValueError("只能选择同BOOM目录下的BOOM基础项")
 
     return base_item
 
@@ -1304,6 +1490,7 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
     package_size = (payload.get("package_size") or "").strip()
     gross_weight = (payload.get("gross_weight") or "").strip()
     category_id = payload.get("category_id")
+    boom_category_id = payload.get("boom_category_id")
 
     if not code:
         raise ValueError("产品编码不能为空")
@@ -1316,6 +1503,15 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
         category = conn.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone()
         if category is None:
             raise ValueError("目录不存在")
+
+    if boom_category_id in ("", None):
+        boom_category_id = None
+    else:
+        boom_category = conn.execute(
+            "SELECT 1 FROM boom_categories WHERE id = ?", (boom_category_id,)
+        ).fetchone()
+        if boom_category is None:
+            raise ValueError("BOOM目录不存在")
 
     duplicate = conn.execute(
         """
@@ -1337,10 +1533,10 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
         cursor = conn.execute(
             """
             INSERT INTO products(
-                code, name, chinese_name, effect, category_id, description, spray_radius,
+                code, name, chinese_name, effect, category_id, boom_category_id, description, spray_radius,
                 unit_weight, package_quantity, package_size, gross_weight, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 code,
@@ -1348,6 +1544,7 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
                 chinese_name,
                 effect,
                 category_id,
+                boom_category_id,
                 description,
                 spray_radius,
                 unit_weight,
@@ -1377,6 +1574,7 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
             chinese_name = ?,
             effect = ?,
             category_id = ?,
+            boom_category_id = ?,
             description = ?,
             spray_radius = ?,
             unit_weight = ?,
@@ -1392,6 +1590,7 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
             chinese_name,
             effect,
             category_id,
+            boom_category_id,
             description,
             spray_radius,
             unit_weight,
@@ -1427,6 +1626,34 @@ def get_or_create_category(conn: sqlite3.Connection, name: str, parent_id: Optio
 
     cursor = conn.execute(
         "INSERT INTO categories(name, parent_id, created_at) VALUES (?, ?, ?)",
+        (name, parent_id, utc_now()),
+    )
+    return int(cursor.lastrowid)
+
+
+def get_or_create_boom_category(
+    conn: sqlite3.Connection, name: str, parent_id: Optional[int]
+) -> int:
+    name = name.strip()
+    if not name:
+        raise ValueError("目录名称不能为空")
+
+    if parent_id is None:
+        row = conn.execute(
+            "SELECT id FROM boom_categories WHERE parent_id IS NULL AND name = ?",
+            (name,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT id FROM boom_categories WHERE parent_id = ? AND name = ?",
+            (parent_id, name),
+        ).fetchone()
+
+    if row is not None:
+        return int(row["id"])
+
+    cursor = conn.execute(
+        "INSERT INTO boom_categories(name, parent_id, created_at) VALUES (?, ?, ?)",
         (name, parent_id, utc_now()),
     )
     return int(cursor.lastrowid)
