@@ -601,23 +601,16 @@ function renderProductCategoryMoveTree() {
 
 function renderCategoryTree() {
   const container = el("categoryTree");
-  const parentMap = new Map();
-  for (const category of state.categories) {
-    parentMap.set(category.id, category.parent_id ?? null);
-  }
-
-  const subtreeProducts = new Map();
+  const categoryProducts = new Map();
   for (const product of state.materialProducts) {
-    let categoryId = product.category_id == null ? null : Number(product.category_id);
-    const visited = new Set();
-    while (categoryId && !visited.has(categoryId)) {
-      visited.add(categoryId);
-      if (!subtreeProducts.has(categoryId)) {
-        subtreeProducts.set(categoryId, []);
-      }
-      subtreeProducts.get(categoryId).push(product);
-      categoryId = parentMap.get(categoryId) ?? null;
+    const categoryId = product.category_id == null ? null : Number(product.category_id);
+    if (!categoryId) {
+      continue;
     }
+    if (!categoryProducts.has(categoryId)) {
+      categoryProducts.set(categoryId, []);
+    }
+    categoryProducts.get(categoryId).push(product);
   }
 
   function renderNodes(nodes, depth = 0) {
@@ -625,7 +618,7 @@ function renderCategoryTree() {
     for (const node of nodes) {
       const active = state.selectedTreeCategoryId === node.id ? "active" : "";
       const dropTarget = state.treeDropCategoryId === node.id ? "drag-target" : "";
-      const products = subtreeProducts.get(node.id) || [];
+      const products = categoryProducts.get(node.id) || [];
       const hasChildren = Boolean(node.children && node.children.length > 0);
       const hasContent = hasChildren || products.length > 0;
       const expanded = state.expandedCategoryIds.has(node.id);
