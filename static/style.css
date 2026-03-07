@@ -405,6 +405,11 @@ button.ghost {
   padding: 4px;
 }
 
+.image-card-actions {
+  display: grid;
+  gap: 4px;
+}
+
 .tree {
   list-style: none;
   margin: 0;

@@ -1067,12 +1067,17 @@ function renderProductImages(images) {
 
   container.innerHTML = images
     .map(
-      (img) => `
+      (img, index) => `
     <div class="image-card ${
       state.selectedProductMainImagePath === img.image_path ? "active" : ""
     }" data-image-path="${img.image_path}">
       <img src="/media/${img.image_path}" alt="${img.image_path}" />
-      <button class="danger" data-id="${img.id}">删除图片</button>
+      <div class="image-card-actions">
+        <button type="button" class="${index === 0 ? "ghost" : ""}" data-cover-id="${img.id}" ${
+          index === 0 ? "disabled" : ""
+        }>${index === 0 ? "封面" : "设为封面"}</button>
+        <button type="button" class="danger" data-delete-id="${img.id}">删除图片</button>
+      </div>
     </div>
   `
     )
@@ -1085,10 +1090,24 @@ function renderProductImages(images) {
     });
   });
 
-  container.querySelectorAll("button").forEach((button) => {
+  container.querySelectorAll("button[data-cover-id]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
-      const id = Number(button.dataset.id);
+      const id = Number(button.dataset.coverId);
+      if (!id) return;
+      await request(`/api/product-images/${id}/cover`, { method: "PUT" });
+      toast("封面已更新");
+      const productId = Number(el("productId").value);
+      if (productId) {
+        await Promise.all([loadProductDetail(productId), loadProducts(), loadStats()]);
+      }
+    });
+  });
+
+  container.querySelectorAll("button[data-delete-id]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const id = Number(button.dataset.deleteId);
       if (!window.confirm("确认删除该图片？")) return;
       await request(`/api/product-images/${id}`, { method: "DELETE" });
       toast("图片已删除");

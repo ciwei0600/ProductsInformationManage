@@ -889,6 +889,21 @@ def create_app() -> Flask:
         delete_media_file(row["image_path"])
         return jsonify({"ok": True})
 
+    @app.route("/api/product-images/<int:image_id>/cover", methods=["PUT"])
+    def set_product_image_cover(image_id: int):
+        conn = get_db()
+        row = conn.execute(
+            "SELECT id, product_id FROM product_images WHERE id = ?",
+            (image_id,),
+        ).fetchone()
+        if row is None:
+            return jsonify({"error": "图片不存在"}), 404
+
+        set_product_cover_image(conn, int(row["product_id"]), image_id)
+        conn.execute("UPDATE products SET updated_at = ? WHERE id = ?", (utc_now(), row["product_id"]))
+        conn.commit()
+        return jsonify({"ok": True})
+
     @app.route("/api/products/<int:product_id>/specs", methods=["POST"])
     def create_product_spec(product_id: int):
         conn = get_db()
@@ -2089,6 +2104,29 @@ def insert_product_image(conn: sqlite3.Connection, product_id: int, image_path: 
         (product_id, image_path, int(sort_order), utc_now()),
     )
     return int(cursor.lastrowid)
+
+
+def set_product_cover_image(conn: sqlite3.Connection, product_id: int, image_id: int) -> None:
+    rows = conn.execute(
+        """
+        SELECT id
+        FROM product_images
+        WHERE product_id = ?
+        ORDER BY
+            CASE WHEN id = ? THEN 0 ELSE 1 END,
+            sort_order ASC,
+            id ASC
+        """,
+        (product_id, image_id),
+    ).fetchall()
+    if not rows:
+        return
+
+    for index, row in enumerate(rows):
+        conn.execute(
+            "UPDATE product_images SET sort_order = ? WHERE id = ?",
+            (index, int(row["id"])),
+        )
 
 
 def delete_media_file(image_path: str) -> None:
