@@ -176,9 +176,9 @@ def create_app() -> Flask:
         conn = get_db()
         rows = conn.execute(
             """
-            SELECT id, name, parent_id, created_at
+            SELECT id, name, parent_id, sort_order, created_at
             FROM boom_categories
-            ORDER BY COALESCE(parent_id, 0), id
+            ORDER BY COALESCE(parent_id, 0), sort_order, id
             """
         ).fetchall()
         items = [dict(row) for row in rows]
@@ -202,9 +202,22 @@ def create_app() -> Flask:
             if parent_exists is None:
                 return jsonify({"error": "父级目录不存在"}), 400
 
-        category_id = get_or_create_boom_category(conn, name, parent_id)
+        if parent_id is None:
+            sort_order = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM boom_categories WHERE parent_id IS NULL"
+            ).fetchone()[0]
+        else:
+            sort_order = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM boom_categories WHERE parent_id = ?",
+                (parent_id,),
+            ).fetchone()[0]
+        category_id = get_or_create_boom_category(conn, name, parent_id, int(sort_order))
+        category = conn.execute(
+            "SELECT id, name, parent_id, sort_order FROM boom_categories WHERE id = ?",
+            (category_id,),
+        ).fetchone()
         conn.commit()
-        return jsonify({"id": category_id, "name": name, "parent_id": parent_id})
+        return jsonify(dict(category))
 
     @app.route("/api/boom-categories/<int:category_id>", methods=["PUT"])
     def update_boom_category(category_id: int):
@@ -216,7 +229,7 @@ def create_app() -> Flask:
 
         conn = get_db()
         current = conn.execute(
-            "SELECT id, parent_id FROM boom_categories WHERE id = ?", (category_id,)
+            "SELECT id, parent_id, sort_order FROM boom_categories WHERE id = ?", (category_id,)
         ).fetchone()
         if current is None:
             return jsonify({"error": "目录不存在"}), 404
@@ -236,7 +249,10 @@ def create_app() -> Flask:
         if duplicate is not None:
             return jsonify({"error": "同级目录下已存在同名目录"}), 400
 
-        conn.execute("UPDATE boom_categories SET name = ? WHERE id = ?", (name, category_id))
+        conn.execute(
+            "UPDATE boom_categories SET name = ?, sort_order = ? WHERE id = ?",
+            (name, int(current["sort_order"] or 0), category_id),
+        )
         conn.commit()
         return jsonify({"ok": True})
 
@@ -1407,6 +1423,7 @@ def init_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             parent_id INTEGER REFERENCES boom_categories(id) ON DELETE RESTRICT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         );
 
@@ -1510,6 +1527,7 @@ def init_db() -> None:
     )
     ensure_product_columns(conn)
     migrate_boom_tables_if_needed(conn)
+    ensure_boom_category_columns(conn)
     ensure_product_bom_columns(conn)
     ensure_boom_base_columns(conn)
     backfill_config_units_from_boom_base(conn)
@@ -1677,6 +1695,30 @@ def ensure_product_bom_columns(conn: sqlite3.Connection) -> None:
     )
 
 
+def ensure_boom_category_columns(conn: sqlite3.Connection) -> None:
+    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(boom_categories)").fetchall()}
+    created_sort_order_column = False
+    if "sort_order" not in existing_columns:
+        conn.execute("ALTER TABLE boom_categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+        created_sort_order_column = True
+
+    if created_sort_order_column:
+        conn.execute(
+            """
+            UPDATE boom_categories
+            SET sort_order = id
+            WHERE COALESCE(sort_order, 0) = 0
+            """
+        )
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_boom_categories_parent_order
+        ON boom_categories(parent_id, sort_order, id)
+        """
+    )
+
+
 def ensure_boom_base_columns(conn: sqlite3.Connection) -> None:
     existing_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(category_boom_base_items)").fetchall()
@@ -1740,13 +1782,14 @@ def seed_boom_categories_from_product_categories(conn: sqlite3.Connection) -> No
     for row in rows:
         conn.execute(
             """
-            INSERT INTO boom_categories(id, name, parent_id, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO boom_categories(id, name, parent_id, sort_order, created_at)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 row[0],
                 row[1],
                 row[2],
+                row[0],
                 row[3] or utc_now(),
             ),
         )
@@ -2065,7 +2108,7 @@ def get_or_create_category(conn: sqlite3.Connection, name: str, parent_id: Optio
 
 
 def get_or_create_boom_category(
-    conn: sqlite3.Connection, name: str, parent_id: Optional[int]
+    conn: sqlite3.Connection, name: str, parent_id: Optional[int], sort_order: int
 ) -> int:
     name = name.strip()
     if not name:
@@ -2086,8 +2129,8 @@ def get_or_create_boom_category(
         return int(row["id"])
 
     cursor = conn.execute(
-        "INSERT INTO boom_categories(name, parent_id, created_at) VALUES (?, ?, ?)",
-        (name, parent_id, utc_now()),
+        "INSERT INTO boom_categories(name, parent_id, sort_order, created_at) VALUES (?, ?, ?, ?)",
+        (name, parent_id, int(sort_order), utc_now()),
     )
     return int(cursor.lastrowid)
 

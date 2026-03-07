@@ -250,6 +250,23 @@ function boomCategoryPathMap() {
   return buildPathMap(state.boomCategories);
 }
 
+function formatBoomCategoryLabel(category) {
+  if (!category) return "";
+  const sortOrder = Number(category.sort_order);
+  const prefix = Number.isFinite(sortOrder) ? `${sortOrder}. ` : "";
+  return `${prefix}${category.name || ""}`;
+}
+
+function getBoomCategoryAddParentId() {
+  const categoryId = Number(state.selectedBoomBaseCategoryId || 0);
+  if (!categoryId) return null;
+  const current = state.boomCategories.find((item) => item.id === categoryId);
+  if (state.boomCategoryAddMode === "sibling") {
+    return current?.parent_id ?? null;
+  }
+  return categoryId;
+}
+
 function fillCategorySelect(selectId, includeAll = false) {
   const select = el(selectId);
   if (!select) return;
@@ -283,7 +300,9 @@ function fillBoomCategorySelect(selectId, includeBlank = true) {
   let html = includeBlank ? '<option value="">无</option>' : "";
   for (const category of state.boomCategories) {
     const path = pathMap.get(category.id) || category.name;
-    html += `<option value="${category.id}">${path}</option>`;
+    const sortOrder = Number(category.sort_order);
+    const prefix = Number.isFinite(sortOrder) ? `[${sortOrder}] ` : "";
+    html += `<option value="${category.id}">${escapeHtml(prefix + path)}</option>`;
   }
 
   select.innerHTML = html;
@@ -442,7 +461,8 @@ function updateBoomCategoryAddTargetText() {
     return;
   }
   const current = state.boomCategories.find((item) => item.id === state.selectedBoomBaseCategoryId);
-  const currentName = current?.name || `BOOM目录 #${state.selectedBoomBaseCategoryId}`;
+  const currentName =
+    formatBoomCategoryLabel(current) || `BOOM目录 #${state.selectedBoomBaseCategoryId}`;
   if (state.boomCategoryAddMode === "sibling") {
     target.textContent = `同级目录：与“${currentName}”同级`;
     return;
@@ -465,7 +485,8 @@ function openBoomCategoryActionModal(action) {
   const input = el("boomCategoryActionInput");
   const confirmBtn = el("boomCategoryActionConfirmBtn");
   const current = state.boomCategories.find((item) => item.id === state.selectedBoomBaseCategoryId);
-  const currentName = current?.name || `BOOM目录 #${state.selectedBoomBaseCategoryId}`;
+  const currentName =
+    formatBoomCategoryLabel(current) || `BOOM目录 #${state.selectedBoomBaseCategoryId}`;
 
   if (state.boomCategoryAction === "delete") {
     title.textContent = "删除BOOM目录";
@@ -1903,10 +1924,11 @@ function renderBoomBaseCategoryTree() {
     for (const node of nodes) {
       const active = state.selectedBoomBaseCategoryId === node.id ? "active" : "";
       const padding = 10 + depth * 14;
+      const label = formatBoomCategoryLabel(node) || node.name || "-";
       html += `<li>
         <div class="tree-item ${active}" data-boom-category-id="${node.id}" style="padding-left:${padding}px">
           <span class="tree-sign empty">·</span>
-          <span>${node.name}</span>
+          <span>${escapeHtml(label)}</span>
         </div>
       `;
       if (node.children && node.children.length > 0) {
@@ -2428,12 +2450,7 @@ async function applyBoomCategoryAction() {
 
   if (action === "add") {
     if (!name) throw new Error("BOOM目录名称不能为空");
-    const current = state.boomCategories.find((item) => item.id === categoryId);
-    const parentId = !categoryId
-      ? null
-      : state.boomCategoryAddMode === "sibling"
-        ? (current?.parent_id ?? null)
-        : categoryId;
+    const parentId = getBoomCategoryAddParentId();
     const created = await request("/api/boom-categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
