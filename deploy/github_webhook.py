@@ -108,6 +108,10 @@ class Handler(BaseHTTPRequestHandler):
 
         repo_name = str(data.get("repository", {}).get("full_name", ""))
         ref = str(data.get("ref", ""))
+        before_sha = str(data.get("before", "") or "")
+        after_sha = str(data.get("after", "") or "")
+        head_commit = data.get("head_commit") or {}
+        head_commit_id = str(head_commit.get("id", "") or after_sha)
 
         if EXPECT_REPO and repo_name != EXPECT_REPO:
             append_log(f"忽略请求：仓库不匹配 repo={repo_name} expected={EXPECT_REPO} {self._request_meta()}")
@@ -122,9 +126,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, {"ok": True, "message": f"ignored ref: {ref}"})
             return
 
-        append_log(f"收到部署请求 repo={repo_name} ref={ref} {self._request_meta()}")
+        append_log(
+            f"收到部署请求 repo={repo_name} ref={ref} before={before_sha[:7] or '-'} "
+            f"after={after_sha[:7] or '-'} head={head_commit_id[:7] or '-'} {self._request_meta()}"
+        )
         code, output = run_deploy()
-        append_log(f"部署结束 code={code} repo={repo_name} ref={ref}\n{output}")
+        append_log(
+            f"部署结束 code={code} repo={repo_name} ref={ref} "
+            f"after={after_sha[:7] or '-'}\n{output}"
+        )
 
         if code == 0:
             self._json(HTTPStatus.OK, {"ok": True, "message": "deploy success"})
