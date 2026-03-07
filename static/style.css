@@ -568,6 +568,17 @@ button.ghost {
   background: #d9f3f0;
 }
 
+.tree-item.drag-target {
+  background: #d7f4ef;
+  box-shadow: 0 0 0 1px #0f766e inset;
+}
+
+.tree-product-item.dragging {
+  opacity: 0.55;
+  border-left-color: #0f766e;
+  background: #eefcf9;
+}
+
 .filter-grid {
   display: grid;
   grid-template-columns: 1fr 220px 100px;

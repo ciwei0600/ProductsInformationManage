@@ -618,6 +618,41 @@ def create_app() -> Flask:
         conn.commit()
         return jsonify({"ok": True})
 
+    @app.route("/api/products/<int:product_id>/move-category", methods=["PUT"])
+    def move_product_category(product_id: int):
+        conn = get_db()
+        product = conn.execute(
+            "SELECT id, category_id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            (product_id,),
+        ).fetchone()
+        if product is None:
+            return jsonify({"error": "产品不存在"}), 404
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            target_category_id = int(payload.get("category_id"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "请选择目标目录"}), 400
+
+        category = conn.execute(
+            "SELECT id, name FROM categories WHERE id = ?",
+            (target_category_id,),
+        ).fetchone()
+        if category is None:
+            return jsonify({"error": "目标目录不存在"}), 400
+
+        current_category_id = product["category_id"]
+        if current_category_id is not None and int(current_category_id) == target_category_id:
+            return jsonify({"ok": True, "category_id": target_category_id, "unchanged": True})
+
+        now = utc_now()
+        conn.execute(
+            "UPDATE products SET category_id = ?, updated_at = ? WHERE id = ?",
+            (target_category_id, now, product_id),
+        )
+        conn.commit()
+        return jsonify({"ok": True, "category_id": target_category_id, "category_name": category["name"]})
+
     @app.route("/api/products/<int:product_id>/packaging-machine", methods=["PUT"])
     def update_product_packaging_machine(product_id: int):
         conn = get_db()

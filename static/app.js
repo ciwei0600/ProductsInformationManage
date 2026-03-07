@@ -9,6 +9,8 @@ const state = {
   total: 0,
   selectedTreeCategoryId: null,
   selectedTreeProductId: null,
+  draggingTreeProductId: null,
+  treeDropCategoryId: null,
   selectedBoomBaseCategoryId: null,
   selectedProductMainImagePath: null,
   expandedCategoryIds: new Set(),
@@ -509,6 +511,7 @@ function renderCategoryTree() {
     let html = "";
     for (const node of nodes) {
       const active = state.selectedTreeCategoryId === node.id ? "active" : "";
+      const dropTarget = state.treeDropCategoryId === node.id ? "drag-target" : "";
       const products = subtreeProducts.get(node.id) || [];
       const hasContent = products.length > 0;
       const expanded = state.expandedCategoryIds.has(node.id);
@@ -517,7 +520,7 @@ function renderCategoryTree() {
       const padding = 10 + depth * 14;
       html += `<li>
         <div
-          class="tree-item ${active}"
+          class="tree-item ${active} ${dropTarget}"
           data-id="${node.id}"
           data-expandable="${hasContent ? "1" : "0"}"
           style="padding-left:${padding}px"
@@ -538,8 +541,9 @@ function renderCategoryTree() {
               ? `<img class="tree-product-thumb" src="/media/${product.first_image}" alt="${name}" />`
               : '<div class="tree-product-no-image">无图</div>';
             const activeProduct = state.selectedTreeProductId === product.id ? "active" : "";
+            const draggingProduct = state.draggingTreeProductId === product.id ? "dragging" : "";
             return `
-            <li class="tree-product-item ${activeProduct}" data-product-id="${product.id}">
+            <li class="tree-product-item ${activeProduct} ${draggingProduct}" data-product-id="${product.id}" draggable="true">
               <div class="tree-product-main">
                 <div class="tree-product-media">
                   ${imageBlock}
@@ -589,6 +593,35 @@ function renderCategoryTree() {
       }
       renderCategoryTree();
     });
+
+    item.addEventListener("dragover", (event) => {
+      if (!state.draggingTreeProductId) return;
+      event.preventDefault();
+      const categoryId = Number(item.dataset.id);
+      if (!categoryId) return;
+      state.treeDropCategoryId = categoryId;
+      item.classList.add("drag-target");
+    });
+
+    item.addEventListener("dragleave", () => {
+      const categoryId = Number(item.dataset.id);
+      if (state.treeDropCategoryId === categoryId) {
+        state.treeDropCategoryId = null;
+      }
+      item.classList.remove("drag-target");
+    });
+
+    item.addEventListener("drop", (event) => {
+      if (!state.draggingTreeProductId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const categoryId = Number(item.dataset.id);
+      if (!categoryId) return;
+      const productId = Number(state.draggingTreeProductId);
+      state.treeDropCategoryId = null;
+      item.classList.remove("drag-target");
+      moveTreeProductToCategory(productId, categoryId).catch((err) => toast(err.message));
+    });
   });
 
   container.querySelectorAll(".tree-product-item[data-product-id]").forEach((item) => {
@@ -598,6 +631,24 @@ function renderCategoryTree() {
       if (!productId) return;
       state.selectedTreeProductId = productId;
       updateEditSelectedProductButtonState();
+      renderCategoryTree();
+    });
+
+    item.addEventListener("dragstart", (event) => {
+      const productId = Number(item.dataset.productId);
+      if (!productId) return;
+      state.draggingTreeProductId = productId;
+      state.treeDropCategoryId = null;
+      item.classList.add("dragging");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(productId));
+      }
+    });
+
+    item.addEventListener("dragend", () => {
+      state.draggingTreeProductId = null;
+      state.treeDropCategoryId = null;
       renderCategoryTree();
     });
   });
@@ -610,6 +661,45 @@ function renderCategoryTree() {
       loadProductDetail(productId).catch((err) => toast(err.message));
     });
   });
+}
+
+async function moveTreeProductToCategory(productId, categoryId) {
+  if (!productId || !categoryId) {
+    throw new Error("拖拽移动失败");
+  }
+
+  const product = state.materialProducts.find((item) => item.id === productId);
+  if (!product) {
+    throw new Error("未找到要移动的产品");
+  }
+
+  const currentCategoryId = product.category_id == null ? null : Number(product.category_id);
+  if (currentCategoryId === categoryId) {
+    state.draggingTreeProductId = null;
+    state.treeDropCategoryId = null;
+    renderCategoryTree();
+    return;
+  }
+
+  await request(`/api/products/${productId}/move-category`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category_id: categoryId }),
+  });
+
+  state.draggingTreeProductId = null;
+  state.treeDropCategoryId = categoryId;
+  state.selectedTreeCategoryId = categoryId;
+  state.selectedTreeProductId = productId;
+  state.expandedCategoryIds.add(categoryId);
+  toast("产品目录已移动");
+
+  await Promise.all([loadProducts(), loadMaterialProducts()]);
+  if (Number(el("productId").value) === productId) {
+    el("productCategory").value = String(categoryId);
+  }
+  state.treeDropCategoryId = null;
+  renderCategoryTree();
 }
 
 function renderRecycleBinTree() {
