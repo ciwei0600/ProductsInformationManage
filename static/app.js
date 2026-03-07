@@ -548,7 +548,8 @@ function renderCategoryTree() {
       const active = state.selectedTreeCategoryId === node.id ? "active" : "";
       const dropTarget = state.treeDropCategoryId === node.id ? "drag-target" : "";
       const products = subtreeProducts.get(node.id) || [];
-      const hasContent = products.length > 0;
+      const hasChildren = Boolean(node.children && node.children.length > 0);
+      const hasContent = hasChildren || products.length > 0;
       const expanded = state.expandedCategoryIds.has(node.id);
       const sign = hasContent ? (expanded ? "-" : "+") : "·";
       const signClass = hasContent ? "tree-sign" : "tree-sign empty";
@@ -564,7 +565,7 @@ function renderCategoryTree() {
           <span>${node.name}</span>
         </div>
       `;
-      if (node.children && node.children.length > 0) {
+      if (expanded && hasChildren) {
         html += `<ul class="tree">${renderNodes(node.children, depth + 1)}</ul>`;
       }
       if (expanded && products.length > 0) {
