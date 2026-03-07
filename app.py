@@ -1512,6 +1512,7 @@ def init_db() -> None:
     seed_boom_categories_from_product_categories(conn)
     backfill_boom_base_categories(conn)
     backfill_product_boom_categories(conn)
+    migrate_existing_product_images_to_webp(conn)
     conn.commit()
     conn.close()
 
@@ -2139,23 +2140,90 @@ def save_uploaded_image_as_webp(uploaded_file, destination: Path) -> None:
     try:
         uploaded_file.stream.seek(0)
         with Image.open(uploaded_file.stream) as image:
-            image = ImageOps.exif_transpose(image)
-            if image.mode == "P":
-                image = image.convert("RGBA")
-            elif image.mode not in ("RGB", "RGBA"):
-                image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
-
-            image.thumbnail((UPLOAD_WEBP_MAX_EDGE, UPLOAD_WEBP_MAX_EDGE), Image.Resampling.LANCZOS)
-            image.save(
-                destination,
-                format="WEBP",
-                quality=UPLOAD_WEBP_QUALITY,
-                method=6,
-                optimize=True,
-            )
+            save_image_as_webp(image, destination)
     except Exception:
         destination.unlink(missing_ok=True)
         raise
+
+
+def save_image_as_webp(image: Image.Image, destination: Path) -> None:
+    image = ImageOps.exif_transpose(image)
+    if image.mode == "P":
+        image = image.convert("RGBA")
+    elif image.mode not in ("RGB", "RGBA"):
+        image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+
+    image.thumbnail((UPLOAD_WEBP_MAX_EDGE, UPLOAD_WEBP_MAX_EDGE), Image.Resampling.LANCZOS)
+    image.save(
+        destination,
+        format="WEBP",
+        quality=UPLOAD_WEBP_QUALITY,
+        method=6,
+        optimize=True,
+    )
+
+
+def build_webp_image_path(image_path: str, image_id: int, has_conflict: bool = False) -> str:
+    original = Path(image_path)
+    if has_conflict:
+        return str(original.with_name(f"{original.stem}-{image_id}.webp"))
+    return str(original.with_suffix(".webp"))
+
+
+def migrate_existing_product_images_to_webp(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT id, product_id, image_path
+        FROM product_images
+        WHERE lower(image_path) NOT LIKE '%.webp'
+        ORDER BY id
+        """
+    ).fetchall()
+    if not rows:
+        return
+
+    changed_product_ids: set[int] = set()
+    for row in rows:
+        image_id = int(row[0])
+        product_id = int(row[1])
+        image_path = str(row[2] or "").strip()
+        if not image_path:
+            continue
+
+        source_path = MEDIA_DIR / image_path
+        if not source_path.exists() or not source_path.is_file():
+            continue
+
+        target_rel_path = build_webp_image_path(image_path, image_id)
+        conflict = conn.execute(
+            "SELECT id FROM product_images WHERE product_id = ? AND image_path = ? AND id != ?",
+            (product_id, target_rel_path, image_id),
+        ).fetchone()
+        if conflict is not None:
+            target_rel_path = build_webp_image_path(image_path, image_id, has_conflict=True)
+
+        target_abs_path = MEDIA_DIR / target_rel_path
+        if not target_abs_path.exists():
+            target_abs_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with Image.open(source_path) as image:
+                    save_image_as_webp(image, target_abs_path)
+            except (UnidentifiedImageError, OSError):
+                target_abs_path.unlink(missing_ok=True)
+                continue
+
+        conn.execute(
+            "UPDATE product_images SET image_path = ? WHERE id = ?",
+            (target_rel_path, image_id),
+        )
+        changed_product_ids.add(product_id)
+
+    if changed_product_ids:
+        now = utc_now()
+        conn.executemany(
+            "UPDATE products SET updated_at = ? WHERE id = ?",
+            [(now, product_id) for product_id in changed_product_ids],
+        )
 
 
 def delete_media_file(image_path: str) -> None:
