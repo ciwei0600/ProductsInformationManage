@@ -136,6 +136,17 @@
                   <input id="productChineseName" type="text" placeholder="产品中文名称" />
                 </div>
                 <div class="row">
+                  <label for="productIsPurchased">是否采购</label>
+                  <label class="checkbox">
+                    <input id="productIsPurchased" type="checkbox" />
+                    采购商品
+                  </label>
+                </div>
+                <div class="row" id="productPurchasePriceRow" style="display: none">
+                  <label for="productPurchasePrice">采购价格</label>
+                  <input id="productPurchasePrice" type="number" min="0" step="0.0001" placeholder="采购价格" />
+                </div>
+                <div class="row">
                   <label for="productCategory">目录</label>
                   <select id="productCategory"></select>
                 </div>
@@ -208,7 +219,7 @@
                 </div>
               </section>
 
-              <section class="detail-section">
+              <section class="detail-section" id="productBomSection">
                 <h3>BOM清单</h3>
                 <div id="bomEditorHint" class="hint">请先保存产品后，再维护BOM项目。</div>
                 <div id="bomEditor" class="bom-editor">

@@ -1092,6 +1092,26 @@ function setBomEditorEnabled(enabled) {
   });
 }
 
+function setPurchasedProductMode(isPurchased) {
+  const purchased = Boolean(isPurchased);
+  const priceRow = el("productPurchasePriceRow");
+  const boomSection = el("productBomSection");
+  const boomCategory = el("productBoomCategory");
+
+  if (priceRow) {
+    priceRow.style.display = purchased ? "" : "none";
+  }
+  if (boomCategory) {
+    boomCategory.disabled = purchased;
+    if (purchased) {
+      boomCategory.value = "";
+    }
+  }
+  if (boomSection) {
+    boomSection.style.display = purchased ? "none" : "";
+  }
+}
+
 function setProductSpecEditorEnabled(enabled) {
   const hint = el("productSpecEditorHint");
   const editor = el("productSpecEditor");
@@ -1351,6 +1371,8 @@ function resetProductForm() {
   el("productId").value = "";
   el("productCode").value = "";
   el("productChineseName").value = "";
+  el("productIsPurchased").checked = false;
+  el("productPurchasePrice").value = "";
   el("productCategory").value = "";
   el("productBoomCategory").value = "";
   el("productEffect").value = "";
@@ -1386,6 +1408,7 @@ function resetProductForm() {
   resetBomEditor();
   renderBomItems([], 0);
   setBomEditorEnabled(false);
+  setPurchasedProductMode(false);
 }
 
 function setProductImagePanelVisible(show) {
@@ -1939,16 +1962,25 @@ function syncMaterialCostUnitFromSelectedProduct() {
     return;
   }
 
-  const bomUnitCost = Number(product.bom_unit_cost || 0);
-  const normalizedCost = Number.isFinite(bomUnitCost) ? bomUnitCost : 0;
+  const isPurchased = Boolean(Number(product.is_purchased || 0));
+  const baseCost = isPurchased ? Number(product.purchase_price || 0) : Number(product.bom_unit_cost || 0);
+  const normalizedCost = Number.isFinite(baseCost) ? baseCost : 0;
   el("materialCostUnit").value = formatDecimal(normalizedCost, 6);
 
   if (normalizedCost > 0) {
-    setText("materialCostUnitHint", `已自动带入BOM单件成本: ¥${toMoney(normalizedCost)}`);
+    setText(
+      "materialCostUnitHint",
+      isPurchased
+        ? `已自动带入采购价格: ¥${toMoney(normalizedCost)}`
+        : `已自动带入BOM单件成本: ¥${toMoney(normalizedCost)}`
+    );
     return;
   }
 
-  setText("materialCostUnitHint", "该产品未设置BOM成本，当前默认 0，可手动输入");
+  setText(
+    "materialCostUnitHint",
+    isPurchased ? "该采购商品未设置采购价格，当前默认 0，可手动输入" : "该产品未设置BOM成本，当前默认 0，可手动输入"
+  );
 }
 
 function refreshMaterialSelectors() {
@@ -2154,6 +2186,9 @@ async function loadProductDetail(id) {
   el("productId").value = String(product.id);
   el("productCode").value = product.code || "";
   el("productChineseName").value = product.chinese_name || product.name || "";
+  el("productIsPurchased").checked = Boolean(Number(product.is_purchased || 0));
+  el("productPurchasePrice").value =
+    Number(product.purchase_price || 0) > 0 ? formatDecimal(Number(product.purchase_price || 0), 6) : "";
   el("productCategory").value = product.category_id == null ? "" : String(product.category_id);
   el("productBoomCategory").value =
     product.boom_category_id == null ? "" : String(product.boom_category_id);
@@ -2174,10 +2209,18 @@ async function loadProductDetail(id) {
   resetProductSpecEditor();
   renderProductSpecs(data.specs || []);
   setProductSpecEditorEnabled(true);
+  setPurchasedProductMode(Boolean(Number(product.is_purchased || 0)));
   resetBomEditor();
-  await loadProductBoomBaseItems(product.boom_category_id, null);
-  renderBomItems(data.bom_items || [], Number(data.bom_total_cost || 0));
-  setBomEditorEnabled(true);
+  if (Boolean(Number(product.is_purchased || 0))) {
+    renderProductBoomBaseSelect([], null, "采购商品不维护BOOM基础项");
+    renderBomItems([], 0);
+    setBomEditorEnabled(false);
+    setText("bomEditorHint", "采购商品不维护BOM清单。");
+  } else {
+    await loadProductBoomBaseItems(product.boom_category_id, null);
+    renderBomItems(data.bom_items || [], Number(data.bom_total_cost || 0));
+    setBomEditorEnabled(true);
+  }
 }
 
 async function deleteProductFromDetail() {
@@ -2300,11 +2343,16 @@ async function applyBoomCategoryAction() {
 async function saveProduct() {
   setProductCodeError("");
   const productId = el("productId").value;
+  const isPurchased = el("productIsPurchased").checked;
   const payload = {
     code: el("productCode").value.trim(),
     chinese_name: el("productChineseName").value.trim(),
+    is_purchased: isPurchased,
+    purchase_price: el("productPurchasePrice").value.trim() || "0",
     category_id: el("productCategory").value ? Number(el("productCategory").value) : null,
-    boom_category_id: el("productBoomCategory").value ? Number(el("productBoomCategory").value) : null,
+    boom_category_id: isPurchased
+      ? null
+      : (el("productBoomCategory").value ? Number(el("productBoomCategory").value) : null),
     effect: el("productEffect").value.trim(),
     description: el("productDescription").value.trim(),
     spray_radius: el("productSprayRadius").value.trim(),
@@ -2440,6 +2488,9 @@ function bindEvents() {
   });
 
   el("productCode").addEventListener("input", () => setProductCodeError(""));
+  el("productIsPurchased").addEventListener("change", () => {
+    setPurchasedProductMode(el("productIsPurchased").checked);
+  });
   el("productBoomCategory").addEventListener("change", () => {
     resetBomEditor();
     loadProductBoomBaseItems(Number(el("productBoomCategory").value) || null).catch((err) =>

@@ -408,6 +408,8 @@ def create_app() -> Flask:
                 p.code,
                 p.name,
                 COALESCE(NULLIF(p.chinese_name, ''), p.name) AS chinese_name,
+                p.is_purchased,
+                p.purchase_price,
                 p.effect,
                 p.description,
                 p.spray_radius,
@@ -468,6 +470,8 @@ def create_app() -> Flask:
                 p.code,
                 p.name,
                 COALESCE(NULLIF(p.chinese_name, ''), p.name) AS chinese_name,
+                p.is_purchased,
+                p.purchase_price,
                 p.effect,
                 p.description,
                 p.spray_radius,
@@ -724,6 +728,8 @@ def create_app() -> Flask:
                 p.code,
                 p.name,
                 COALESCE(NULLIF(p.chinese_name, ''), p.name) AS chinese_name,
+                p.is_purchased,
+                p.purchase_price,
                 p.effect,
                 p.description,
                 p.spray_radius,
@@ -955,11 +961,13 @@ def create_app() -> Flask:
     def create_product_bom_item(product_id: int):
         conn = get_db()
         product = conn.execute(
-            "SELECT id, category_id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            "SELECT id, category_id, is_purchased FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
             (product_id,),
         ).fetchone()
         if product is None:
             return jsonify({"error": "产品不存在"}), 404
+        if int(product["is_purchased"] or 0) == 1:
+            return jsonify({"error": "采购商品不能维护BOM清单"}), 400
 
         payload = request.get_json(silent=True) or {}
         try:
@@ -1041,6 +1049,15 @@ def create_app() -> Flask:
         ).fetchone()
         if existing is None:
             return jsonify({"error": "BOM项目不存在"}), 404
+
+        product = conn.execute(
+            "SELECT id, is_purchased FROM products WHERE id = ?",
+            (int(existing["product_id"]),),
+        ).fetchone()
+        if product is None:
+            return jsonify({"error": "产品不存在"}), 404
+        if int(product["is_purchased"] or 0) == 1:
+            return jsonify({"error": "采购商品不能维护BOM清单"}), 400
 
         payload = request.get_json(silent=True) or {}
         try:
@@ -1388,6 +1405,8 @@ def init_db() -> None:
             code TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL DEFAULT '',
             chinese_name TEXT NOT NULL DEFAULT '',
+            is_purchased INTEGER NOT NULL DEFAULT 0,
+            purchase_price REAL NOT NULL DEFAULT 0,
             effect TEXT NOT NULL DEFAULT '',
             category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
             description TEXT NOT NULL DEFAULT '',
@@ -1484,6 +1503,8 @@ def ensure_product_columns(conn: sqlite3.Connection) -> None:
     required_columns = {
         "name": "TEXT NOT NULL DEFAULT ''",
         "chinese_name": "TEXT NOT NULL DEFAULT ''",
+        "is_purchased": "INTEGER NOT NULL DEFAULT 0",
+        "purchase_price": "REAL NOT NULL DEFAULT 0",
         "effect": "TEXT NOT NULL DEFAULT ''",
         "spray_radius": "TEXT NOT NULL DEFAULT ''",
         "unit_weight": "TEXT NOT NULL DEFAULT ''",
@@ -1518,6 +1539,13 @@ def ensure_product_columns(conn: sqlite3.Connection) -> None:
         UPDATE products
         SET name = chinese_name
         WHERE TRIM(COALESCE(name, '')) = ''
+        """
+    )
+    conn.execute(
+        """
+        UPDATE products
+        SET purchase_price = 0
+        WHERE purchase_price IS NULL
         """
     )
 
@@ -1706,6 +1734,7 @@ def backfill_product_boom_categories(conn: sqlite3.Connection) -> None:
         UPDATE products
         SET boom_category_id = category_id
         WHERE boom_category_id IS NULL
+          AND COALESCE(is_purchased, 0) = 0
           AND category_id IS NOT NULL
           AND EXISTS (SELECT 1 FROM boom_categories bc WHERE bc.id = products.category_id)
         """
@@ -1803,11 +1832,13 @@ def resolve_boom_base_item_for_product(
         return None
 
     product = conn.execute(
-        "SELECT id, boom_category_id FROM products WHERE id = ?",
+        "SELECT id, boom_category_id, is_purchased FROM products WHERE id = ?",
         (product_id,),
     ).fetchone()
     if product is None:
         raise ValueError("产品不存在")
+    if int(product["is_purchased"] or 0) == 1:
+        raise ValueError("采购商品不能维护BOOM基础项")
 
     product_boom_category_id = product["boom_category_id"]
     if product_boom_category_id is None:
@@ -1845,6 +1876,7 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
     conn = get_db()
     code = (payload.get("code") or "").strip()
     chinese_name = (payload.get("chinese_name") or payload.get("name") or "").strip()
+    is_purchased = 1 if payload.get("is_purchased") in (True, 1, "1", "true", "True", "on") else 0
     effect = (payload.get("effect") or "").strip()
     description = (payload.get("description") or "").strip()
     spray_radius = (payload.get("spray_radius") or "").strip()
@@ -1854,6 +1886,12 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
     gross_weight = (payload.get("gross_weight") or "").strip()
     category_id = payload.get("category_id")
     boom_category_id = payload.get("boom_category_id")
+    try:
+        purchase_price = float(payload.get("purchase_price") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("采购价格格式不正确") from exc
+    if purchase_price < 0:
+        raise ValueError("采购价格不能小于0")
 
     if not code:
         raise ValueError("产品编码不能为空")
@@ -1875,6 +1913,8 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
         ).fetchone()
         if boom_category is None:
             raise ValueError("BOOM目录不存在")
+    if is_purchased:
+        boom_category_id = None
 
     duplicate = conn.execute(
         """
@@ -1896,15 +1936,17 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
         cursor = conn.execute(
             """
             INSERT INTO products(
-                code, name, chinese_name, effect, category_id, boom_category_id, description, spray_radius,
+                code, name, chinese_name, is_purchased, purchase_price, effect, category_id, boom_category_id, description, spray_radius,
                 unit_weight, package_quantity, package_size, gross_weight, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 code,
                 chinese_name,
                 chinese_name,
+                is_purchased,
+                purchase_price,
                 effect,
                 category_id,
                 boom_category_id,
@@ -1935,6 +1977,8 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
             code = ?,
             name = ?,
             chinese_name = ?,
+            is_purchased = ?,
+            purchase_price = ?,
             effect = ?,
             category_id = ?,
             boom_category_id = ?,
@@ -1951,6 +1995,8 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
             code,
             chinese_name,
             chinese_name,
+            is_purchased,
+            purchase_price,
             effect,
             category_id,
             boom_category_id,
