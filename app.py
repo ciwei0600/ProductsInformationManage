@@ -20,11 +20,15 @@ DB_PATH = DATA_DIR / "pim.db"
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 NATURAL_TOKEN_PATTERN = re.compile(r"(\d+(?:\.\d+)?)")
+ISO_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 BOOM_CATEGORY_LEADING_ORDER_PATTERN = re.compile(r"^\s*\d+\s*[.．、。]\s*")
 UPLOAD_WEBP_QUALITY = 80
 UPLOAD_WEBP_MAX_EDGE = 1800
 IMAGE_MIGRATION_THREAD_STARTED = False
 IMAGE_MIGRATION_THREAD_LOCK = threading.Lock()
+BOOM_BASE_TYPE_MATERIAL = "material"
+BOOM_BASE_TYPE_PART = "part"
+BOOM_BASE_TYPE_MOLD = "mold"
 
 
 def create_app() -> Flask:
@@ -1255,18 +1259,32 @@ def create_app() -> Flask:
             "category_id", type=int
         )
         if not boom_category_id:
-            return jsonify({"items": []})
+            return jsonify({"items": [], "category_type": None})
+
+        try:
+            category_type = get_boom_base_category_type(conn, boom_category_id)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 404
 
         rows = conn.execute(
             """
             SELECT
                 cbi.id,
                 cbi.boom_category_id,
+                cbi.item_type,
                 bc.name AS boom_category_name,
                 cbi.item_name,
+                cbi.item_name AS product_name,
                 cbi.unit,
                 cbi.default_unit_cost,
+                cbi.default_unit_cost AS price,
                 cbi.remark AS description,
+                cbi.mold_position,
+                cbi.product_material,
+                cbi.cavity_count,
+                cbi.development_date,
+                cbi.production_date,
+                cbi.scrap_date,
                 cbi.sort_order,
                 cbi.created_at,
                 cbi.updated_at
@@ -1277,7 +1295,7 @@ def create_app() -> Flask:
             """,
             (boom_category_id,),
         ).fetchall()
-        return jsonify({"items": [dict(row) for row in rows]})
+        return jsonify({"items": [dict(row) for row in rows], "category_type": category_type})
 
     @app.route("/api/category-boom-base-items", methods=["POST"])
     def create_category_boom_base_item():
@@ -1294,22 +1312,28 @@ def create_app() -> Flask:
         if category is None:
             return jsonify({"error": "BOOM目录不存在"}), 400
 
+        item_type = get_boom_base_category_type(conn, boom_category_id)
         item_name = (payload.get("item_name") or "").strip()
         unit = (payload.get("unit") or "").strip()
         description = (payload.get("description") or payload.get("remark") or "").strip()
         if not item_name:
             return jsonify({"error": "项目名称不能为空"}), 400
-        if unit:
+        if item_type != BOOM_BASE_TYPE_MOLD and unit:
             unit_row = conn.execute("SELECT id FROM config_units WHERE name = ?", (unit,)).fetchone()
             if unit_row is None:
                 return jsonify({"error": "请选择配置页面中已存在的单位"}), 400
 
         try:
-            default_unit_cost = float(payload.get("default_unit_cost") or 0)
+            default_unit_cost = float(payload.get("price") or payload.get("default_unit_cost") or 0)
         except (TypeError, ValueError):
-            return jsonify({"error": "默认单价格式不正确"}), 400
+            return jsonify({"error": "价格格式不正确" if item_type == BOOM_BASE_TYPE_MOLD else "默认单价格式不正确"}), 400
         if default_unit_cost < 0:
-            return jsonify({"error": "默认单价不能小于0"}), 400
+            return jsonify({"error": "价格不能小于0" if item_type == BOOM_BASE_TYPE_MOLD else "默认单价不能小于0"}), 400
+
+        try:
+            mold_fields = normalize_boom_base_mold_fields(payload)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
         duplicate = conn.execute(
             """
@@ -1323,24 +1347,33 @@ def create_app() -> Flask:
             return jsonify({"error": "当前BOOM目录已存在同名基础项"}), 400
 
         sort_order = conn.execute(
-            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM category_boom_base_items WHERE boom_category_id = ?",
+            "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM category_boom_base_items WHERE boom_category_id = ?",
             (boom_category_id,),
         ).fetchone()[0]
         now = utc_now()
         cursor = conn.execute(
             """
             INSERT INTO category_boom_base_items(
-                boom_category_id, item_name, item_spec, unit, default_unit_cost, remark, sort_order, created_at, updated_at
+                boom_category_id, item_type, item_name, item_spec, unit, default_unit_cost, remark,
+                mold_position, product_material, cavity_count, development_date, production_date, scrap_date,
+                sort_order, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 boom_category_id,
+                item_type,
                 item_name,
                 "",
-                unit,
+                "" if item_type == BOOM_BASE_TYPE_MOLD else unit,
                 default_unit_cost,
-                description,
+                "" if item_type == BOOM_BASE_TYPE_MOLD else description,
+                mold_fields["mold_position"],
+                mold_fields["product_material"],
+                mold_fields["cavity_count"],
+                mold_fields["development_date"],
+                mold_fields["production_date"],
+                mold_fields["scrap_date"],
                 int(sort_order),
                 now,
                 now,
@@ -1360,24 +1393,30 @@ def create_app() -> Flask:
             return jsonify({"error": "BOOM基础项不存在"}), 404
 
         payload = request.get_json(silent=True) or {}
+        boom_category_id = int(existing["boom_category_id"])
+        item_type = get_boom_base_category_type(conn, boom_category_id)
         item_name = (payload.get("item_name") or "").strip()
         unit = (payload.get("unit") or "").strip()
         description = (payload.get("description") or payload.get("remark") or "").strip()
         if not item_name:
             return jsonify({"error": "项目名称不能为空"}), 400
-        if unit:
+        if item_type != BOOM_BASE_TYPE_MOLD and unit:
             unit_row = conn.execute("SELECT id FROM config_units WHERE name = ?", (unit,)).fetchone()
             if unit_row is None:
                 return jsonify({"error": "请选择配置页面中已存在的单位"}), 400
 
         try:
-            default_unit_cost = float(payload.get("default_unit_cost") or 0)
+            default_unit_cost = float(payload.get("price") or payload.get("default_unit_cost") or 0)
         except (TypeError, ValueError):
-            return jsonify({"error": "默认单价格式不正确"}), 400
+            return jsonify({"error": "价格格式不正确" if item_type == BOOM_BASE_TYPE_MOLD else "默认单价格式不正确"}), 400
         if default_unit_cost < 0:
-            return jsonify({"error": "默认单价不能小于0"}), 400
+            return jsonify({"error": "价格不能小于0" if item_type == BOOM_BASE_TYPE_MOLD else "默认单价不能小于0"}), 400
 
-        boom_category_id = int(existing["boom_category_id"])
+        try:
+            mold_fields = normalize_boom_base_mold_fields(payload)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
         duplicate = conn.execute(
             """
             SELECT id
@@ -1393,10 +1432,27 @@ def create_app() -> Flask:
         conn.execute(
             """
             UPDATE category_boom_base_items
-            SET item_name = ?, item_spec = ?, unit = ?, default_unit_cost = ?, remark = ?, updated_at = ?
+            SET item_type = ?, item_name = ?, item_spec = ?, unit = ?, default_unit_cost = ?, remark = ?,
+                mold_position = ?, product_material = ?, cavity_count = ?, development_date = ?,
+                production_date = ?, scrap_date = ?, updated_at = ?
             WHERE id = ?
             """,
-            (item_name, "", unit, default_unit_cost, description, now, base_item_id),
+            (
+                item_type,
+                item_name,
+                "",
+                "" if item_type == BOOM_BASE_TYPE_MOLD else unit,
+                default_unit_cost,
+                "" if item_type == BOOM_BASE_TYPE_MOLD else description,
+                mold_fields["mold_position"],
+                mold_fields["product_material"],
+                mold_fields["cavity_count"],
+                mold_fields["development_date"],
+                mold_fields["production_date"],
+                mold_fields["scrap_date"],
+                now,
+                base_item_id,
+            ),
         )
         conn.commit()
         return jsonify({"ok": True})
@@ -1565,11 +1621,18 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS category_boom_base_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             boom_category_id INTEGER NOT NULL REFERENCES boom_categories(id) ON DELETE CASCADE,
+            item_type TEXT NOT NULL DEFAULT 'material',
             item_name TEXT NOT NULL,
             item_spec TEXT NOT NULL DEFAULT '',
             unit TEXT NOT NULL DEFAULT '',
             default_unit_cost REAL NOT NULL DEFAULT 0,
             remark TEXT NOT NULL DEFAULT '',
+            mold_position TEXT NOT NULL DEFAULT '',
+            product_material TEXT NOT NULL DEFAULT '',
+            cavity_count TEXT NOT NULL DEFAULT '',
+            development_date TEXT NOT NULL DEFAULT '',
+            production_date TEXT NOT NULL DEFAULT '',
+            scrap_date TEXT NOT NULL DEFAULT '',
             sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -1707,11 +1770,18 @@ def migrate_boom_tables_if_needed(conn: sqlite3.Connection) -> None:
         CREATE TABLE category_boom_base_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             boom_category_id INTEGER NOT NULL REFERENCES boom_categories(id) ON DELETE CASCADE,
+            item_type TEXT NOT NULL DEFAULT 'material',
             item_name TEXT NOT NULL,
             item_spec TEXT NOT NULL DEFAULT '',
             unit TEXT NOT NULL DEFAULT '',
             default_unit_cost REAL NOT NULL DEFAULT 0,
             remark TEXT NOT NULL DEFAULT '',
+            mold_position TEXT NOT NULL DEFAULT '',
+            product_material TEXT NOT NULL DEFAULT '',
+            cavity_count TEXT NOT NULL DEFAULT '',
+            development_date TEXT NOT NULL DEFAULT '',
+            production_date TEXT NOT NULL DEFAULT '',
+            scrap_date TEXT NOT NULL DEFAULT '',
             sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -1736,16 +1806,25 @@ def migrate_boom_tables_if_needed(conn: sqlite3.Connection) -> None:
     conn.execute(
         f"""
         INSERT INTO category_boom_base_items(
-            id, boom_category_id, item_name, item_spec, unit, default_unit_cost, remark, sort_order, created_at, updated_at
+            id, boom_category_id, item_type, item_name, item_spec, unit, default_unit_cost, remark,
+            mold_position, product_material, cavity_count, development_date, production_date, scrap_date,
+            sort_order, created_at, updated_at
         )
         SELECT
             id,
             {base_item_expr},
+            'material',
             item_name,
             item_spec,
             unit,
             default_unit_cost,
             remark,
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
             sort_order,
             created_at,
             updated_at
@@ -1820,6 +1899,77 @@ def normalize_boom_category_name(name: str | None) -> str:
     return BOOM_CATEGORY_LEADING_ORDER_PATTERN.sub("", (name or "").strip()).strip()
 
 
+def boom_base_type_from_root_name(name: str | None) -> str:
+    normalized = normalize_boom_category_name(name)
+    if normalized == "模具":
+        return BOOM_BASE_TYPE_MOLD
+    if normalized == "配件":
+        return BOOM_BASE_TYPE_PART
+    return BOOM_BASE_TYPE_MATERIAL
+
+
+def get_boom_base_category_type(conn: sqlite3.Connection, boom_category_id: int) -> str:
+    row = conn.execute(
+        "SELECT id, name, parent_id FROM boom_categories WHERE id = ?",
+        (boom_category_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("BOOM目录不存在")
+
+    current_name = row[1]
+    parent_id = row[2]
+    while parent_id is not None:
+        parent = conn.execute(
+            "SELECT id, name, parent_id FROM boom_categories WHERE id = ?",
+            (parent_id,),
+        ).fetchone()
+        if parent is None:
+            break
+        current_name = parent[1]
+        parent_id = parent[2]
+
+    return boom_base_type_from_root_name(current_name)
+
+
+def normalize_optional_iso_date(value: Any, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if not ISO_DATE_PATTERN.fullmatch(text):
+        raise ValueError(f"{field_name}格式不正确")
+    return text
+
+
+def normalize_boom_base_mold_fields(payload: dict[str, Any]) -> dict[str, str]:
+    return {
+        "mold_position": str(payload.get("mold_position") or "").strip(),
+        "product_material": str(payload.get("product_material") or "").strip(),
+        "cavity_count": str(payload.get("cavity_count") or "").strip(),
+        "development_date": normalize_optional_iso_date(
+            payload.get("development_date"), "开发日期"
+        ),
+        "production_date": normalize_optional_iso_date(payload.get("production_date"), "量产日期"),
+        "scrap_date": normalize_optional_iso_date(payload.get("scrap_date"), "报废日期"),
+    }
+
+
+def sync_boom_base_item_types(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        "SELECT id, boom_category_id, item_type FROM category_boom_base_items"
+    ).fetchall()
+    for row in rows:
+        boom_category_id = row[1]
+        if boom_category_id is None:
+            continue
+        expected_type = get_boom_base_category_type(conn, int(boom_category_id))
+        current_type = (row[2] or "").strip() or BOOM_BASE_TYPE_MATERIAL
+        if current_type != expected_type:
+            conn.execute(
+                "UPDATE category_boom_base_items SET item_type = ? WHERE id = ?",
+                (expected_type, row[0]),
+            )
+
+
 def normalize_boom_categories(conn: sqlite3.Connection) -> None:
     rows = conn.execute(
         """
@@ -1879,6 +2029,31 @@ def ensure_boom_base_columns(conn: sqlite3.Connection) -> None:
             ADD COLUMN boom_category_id INTEGER REFERENCES boom_categories(id) ON DELETE CASCADE
             """
         )
+    required_columns = {
+        "item_type": f"TEXT NOT NULL DEFAULT '{BOOM_BASE_TYPE_MATERIAL}'",
+        "mold_position": "TEXT NOT NULL DEFAULT ''",
+        "product_material": "TEXT NOT NULL DEFAULT ''",
+        "cavity_count": "TEXT NOT NULL DEFAULT ''",
+        "development_date": "TEXT NOT NULL DEFAULT ''",
+        "production_date": "TEXT NOT NULL DEFAULT ''",
+        "scrap_date": "TEXT NOT NULL DEFAULT ''",
+    }
+    for column_name, column_type in required_columns.items():
+        if column_name not in existing_columns:
+            conn.execute(
+                f"ALTER TABLE category_boom_base_items ADD COLUMN {column_name} {column_type}"
+            )
+
+    conn.execute(
+        """
+        UPDATE category_boom_base_items
+        SET item_type = CASE
+            WHEN item_type IS NULL OR TRIM(item_type) = '' THEN 'material'
+            ELSE item_type
+        END
+        """
+    )
+    sync_boom_base_item_types(conn)
 
     conn.execute(
         """

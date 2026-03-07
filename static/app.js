@@ -32,6 +32,7 @@ const state = {
   recycleExpandedCategoryIds: new Set(),
   packagingExpandedCategoryIds: new Set(),
   boomBaseItems: [],
+  currentBoomBaseCategoryType: "material",
   quoteLines: [],
   currentProductSpecs: [],
   currentProductBomItems: [],
@@ -340,6 +341,112 @@ function clearProductCategoryReorderState(container = el("categoryTree")) {
 function clearBoomCategoryReorderState(container = el("boomBaseCategoryTree")) {
   state.draggingBoomCategoryId = null;
   clearTreeCategoryDropIndicator(container, "boomCategoryDropTargetId", "boomCategoryDropPosition");
+}
+
+function boomBaseCategoryTypeFromName(name) {
+  const normalized = displayBoomCategoryName(name);
+  if (normalized === "模具") return "mold";
+  if (normalized === "配件") return "part";
+  return "material";
+}
+
+function getBoomCategoryTypeFromState(rawCategoryId) {
+  let current = findTreeCategoryById(state.boomCategories, rawCategoryId);
+  if (!current) return "material";
+  while (current.parent_id != null) {
+    const parent = findTreeCategoryById(state.boomCategories, current.parent_id);
+    if (!parent) break;
+    current = parent;
+  }
+  return boomBaseCategoryTypeFromName(current.name);
+}
+
+function boomBaseTypeLabel(type) {
+  if (type === "mold") return "模具";
+  if (type === "part") return "配件";
+  return "原材料";
+}
+
+function isMoldBoomBaseType(type) {
+  return type === "mold";
+}
+
+function getBoomBaseTableColspan(type = state.currentBoomBaseCategoryType) {
+  return isMoldBoomBaseType(type) ? 9 : 6;
+}
+
+function renderBoomBaseTableHead(type = state.currentBoomBaseCategoryType) {
+  const head = el("boomBaseItemsHead");
+  if (!head) return;
+
+  if (isMoldBoomBaseType(type)) {
+    head.innerHTML = `
+      <tr>
+        <th>产品名称</th>
+        <th>模具位置</th>
+        <th>产品原料</th>
+        <th>出数</th>
+        <th>价格</th>
+        <th>开发日期</th>
+        <th>量产日期</th>
+        <th>报废日期</th>
+        <th>操作</th>
+      </tr>
+    `;
+    return;
+  }
+
+  head.innerHTML = `
+    <tr>
+      <th>BOOM目录</th>
+      <th>项目名称</th>
+      <th>单位</th>
+      <th>原料价格</th>
+      <th>描述</th>
+      <th>操作</th>
+    </tr>
+  `;
+}
+
+function renderBoomBaseEditorByType(type = state.currentBoomBaseCategoryType) {
+  const finalType = type || "material";
+  state.currentBoomBaseCategoryType = finalType;
+  setText("boomBaseTypeHint", `当前类型：${boomBaseTypeLabel(finalType)}`);
+
+  const isMold = isMoldBoomBaseType(finalType);
+  const itemNameInput = el("boomBaseItemName");
+  const priceInput = el("boomBaseDefaultUnitCost");
+
+  setText("boomBaseItemNameLabel", isMold ? "产品名称" : "项目名称");
+  setText("boomBaseDefaultUnitCostLabel", isMold ? "价格" : "原料价格");
+
+  if (itemNameInput) {
+    itemNameInput.placeholder = isMold ? "如 喷头模具" : "如 主体、密封圈、喷芯";
+  }
+  if (priceInput) {
+    priceInput.placeholder = isMold ? "模具价格，可选，默认0" : "原料价格，可选，默认0";
+  }
+
+  const unitRow = el("boomBaseUnitRow");
+  const descriptionRow = el("boomBaseDescriptionRow");
+  const moldRowIds = [
+    "boomBaseMoldPositionRow",
+    "boomBaseProductMaterialRow",
+    "boomBaseCavityCountRow",
+    "boomBaseDevelopmentDateRow",
+    "boomBaseProductionDateRow",
+    "boomBaseScrapDateRow",
+  ];
+  if (unitRow) unitRow.style.display = isMold ? "none" : "";
+  if (descriptionRow) descriptionRow.style.display = isMold ? "none" : "";
+  for (const rowId of moldRowIds) {
+    const row = el(rowId);
+    if (row) {
+      row.style.display = isMold ? "" : "none";
+    }
+  }
+
+  renderBoomBaseTableHead(finalType);
 }
 
 function getBoomCategoryAddParentId() {
@@ -1795,8 +1902,12 @@ async function loadBoomCategories() {
   if (!state.selectedBoomBaseCategoryId && state.boomCategoryTree.length > 0) {
     state.selectedBoomBaseCategoryId = Number(state.boomCategoryTree[0].id) || null;
   }
+  state.currentBoomBaseCategoryType = state.selectedBoomBaseCategoryId
+    ? getBoomCategoryTypeFromState(state.selectedBoomBaseCategoryId)
+    : "material";
 
   setBoomCategoryAction(state.boomCategoryAction);
+  renderBoomBaseEditorByType(state.currentBoomBaseCategoryType);
   renderBoomBaseCategoryTree();
   await loadBoomBaseItems();
 }
@@ -2125,6 +2236,7 @@ function renderBoomBaseCategoryTree() {
       const id = Number(item.dataset.boomCategoryId);
       if (!id) return;
       state.selectedBoomBaseCategoryId = id;
+      state.currentBoomBaseCategoryType = getBoomCategoryTypeFromState(id);
       resetBoomBaseForm();
       loadBoomBaseItems().catch((err) => toast(err.message));
       renderBoomBaseCategoryTree();
@@ -2223,29 +2335,40 @@ function resetBoomBaseForm() {
   renderBoomUnitSelect("");
   el("boomBaseDefaultUnitCost").value = "";
   el("boomBaseDescription").value = "";
+  el("boomBaseMoldPosition").value = "";
+  el("boomBaseProductMaterial").value = "";
+  el("boomBaseCavityCount").value = "";
+  el("boomBaseDevelopmentDate").value = "";
+  el("boomBaseProductionDate").value = "";
+  el("boomBaseScrapDate").value = "";
   el("saveBoomBaseItemBtn").textContent = "新增项目";
   el("cancelBoomBaseEditBtn").style.display = "none";
+  renderBoomBaseEditorByType(state.currentBoomBaseCategoryType);
   updateBoomBaseSaveButtonState();
 }
 
 function renderBoomBaseItems(items) {
   const body = el("boomBaseItemsBody");
   state.boomBaseItems = [...items];
+  const categoryType = state.currentBoomBaseCategoryType || "material";
+  renderBoomBaseTableHead(categoryType);
   if (!items.length) {
-    body.innerHTML = '<tr><td colspan="6" class="hint">当前BOOM目录暂无基础信息</td></tr>';
+    body.innerHTML = `<tr><td colspan="${getBoomBaseTableColspan(categoryType)}" class="hint">当前BOOM目录暂无基础信息</td></tr>`;
     return;
   }
 
-  body.innerHTML = items
-    .map((item) => {
-      const categoryName = item.boom_category_name || item.category_name || "-";
+  body.innerHTML = items.map((item) => {
+    if (isMoldBoomBaseType(categoryType)) {
       return `
       <tr>
-        <td>${escapeHtml(categoryName)}</td>
-        <td>${escapeHtml(item.item_name || "-")}</td>
-        <td>${escapeHtml(item.unit || "-")}</td>
-        <td>¥${toMoney(Number(item.default_unit_cost || 0))}</td>
-        <td>${escapeHtml(item.description || "-")}</td>
+        <td>${escapeHtml(item.product_name || item.item_name || "-")}</td>
+        <td>${escapeHtml(item.mold_position || "-")}</td>
+        <td>${escapeHtml(item.product_material || "-")}</td>
+        <td>${escapeHtml(item.cavity_count || "-")}</td>
+        <td>¥${toMoney(Number(item.price || item.default_unit_cost || 0))}</td>
+        <td>${escapeHtml(item.development_date || "-")}</td>
+        <td>${escapeHtml(item.production_date || "-")}</td>
+        <td>${escapeHtml(item.scrap_date || "-")}</td>
         <td>
           <div class="button-row">
             <button type="button" data-boom-action="edit" data-id="${item.id}">修改</button>
@@ -2254,8 +2377,25 @@ function renderBoomBaseItems(items) {
         </td>
       </tr>
       `;
-    })
-    .join("");
+    }
+
+    const categoryName = item.boom_category_name || item.category_name || "-";
+    return `
+    <tr>
+      <td>${escapeHtml(categoryName)}</td>
+      <td>${escapeHtml(item.item_name || "-")}</td>
+      <td>${escapeHtml(item.unit || "-")}</td>
+      <td>¥${toMoney(Number(item.default_unit_cost || 0))}</td>
+      <td>${escapeHtml(item.description || "-")}</td>
+      <td>
+        <div class="button-row">
+          <button type="button" data-boom-action="edit" data-id="${item.id}">修改</button>
+          <button type="button" class="danger" data-boom-action="delete" data-id="${item.id}">删除</button>
+        </div>
+      </td>
+    </tr>
+    `;
+  }).join("");
 
   body.querySelectorAll("button[data-boom-action='edit']").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2267,10 +2407,19 @@ function renderBoomBaseItems(items) {
       }
       state.editingBoomBaseItemId = baseItemId;
       el("boomBaseItemId").value = String(target.id);
-      el("boomBaseItemName").value = target.item_name || "";
+      el("boomBaseItemName").value = target.product_name || target.item_name || "";
       renderBoomUnitSelect(target.unit || "");
-      el("boomBaseDefaultUnitCost").value = formatDecimal(Number(target.default_unit_cost || 0), 6);
+      el("boomBaseDefaultUnitCost").value = formatDecimal(
+        Number(target.price || target.default_unit_cost || 0),
+        6
+      );
       el("boomBaseDescription").value = target.description || "";
+      el("boomBaseMoldPosition").value = target.mold_position || "";
+      el("boomBaseProductMaterial").value = target.product_material || "";
+      el("boomBaseCavityCount").value = target.cavity_count || "";
+      el("boomBaseDevelopmentDate").value = target.development_date || "";
+      el("boomBaseProductionDate").value = target.production_date || "";
+      el("boomBaseScrapDate").value = target.scrap_date || "";
       el("saveBoomBaseItemBtn").textContent = "保存修改";
       el("cancelBoomBaseEditBtn").style.display = "";
     });
@@ -2288,12 +2437,17 @@ async function loadBoomBaseItems() {
   const boomCategoryId = Number(state.selectedBoomBaseCategoryId);
   if (!boomCategoryId) {
     state.boomBaseItems = [];
+    state.currentBoomBaseCategoryType = "material";
+    renderBoomBaseEditorByType(state.currentBoomBaseCategoryType);
     el("boomBaseItemsBody").innerHTML =
-      '<tr><td colspan="6" class="hint">请选择BOOM目录后维护BOOM基础信息</td></tr>';
+      `<tr><td colspan="${getBoomBaseTableColspan()}" class="hint">请选择BOOM目录后维护BOOM基础信息</td></tr>`;
     updateBoomBaseSaveButtonState();
     return;
   }
   const data = await request(`/api/category-boom-base-items?boom_category_id=${boomCategoryId}`);
+  state.currentBoomBaseCategoryType =
+    data.category_type || getBoomCategoryTypeFromState(boomCategoryId);
+  renderBoomBaseEditorByType(state.currentBoomBaseCategoryType);
   renderBoomBaseItems(data.items || []);
   updateBoomBaseSaveButtonState();
 }
@@ -2314,7 +2468,14 @@ async function saveBoomBaseItem() {
     item_name: itemName,
     unit: el("boomBaseUnit").value.trim(),
     default_unit_cost: el("boomBaseDefaultUnitCost").value.trim() || "0",
+    price: el("boomBaseDefaultUnitCost").value.trim() || "0",
     description: el("boomBaseDescription").value.trim(),
+    mold_position: el("boomBaseMoldPosition").value.trim(),
+    product_material: el("boomBaseProductMaterial").value.trim(),
+    cavity_count: el("boomBaseCavityCount").value.trim(),
+    development_date: el("boomBaseDevelopmentDate").value,
+    production_date: el("boomBaseProductionDate").value,
+    scrap_date: el("boomBaseScrapDate").value,
   };
 
   if (state.editingBoomBaseItemId) {

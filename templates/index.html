@@ -316,23 +316,48 @@
 
             <div class="material-price-editor">
               <input id="boomBaseItemId" type="hidden" />
+              <div id="boomBaseTypeHint" class="hint" style="margin-bottom: 12px">当前类型：原材料</div>
               <div class="row">
-                <label for="boomBaseItemName">项目名称</label>
+                <label id="boomBaseItemNameLabel" for="boomBaseItemName">项目名称</label>
                 <input id="boomBaseItemName" type="text" placeholder="如 主体、密封圈、喷芯" />
               </div>
-              <div class="row">
+              <div class="row" id="boomBaseUnitRow">
                 <label for="boomBaseUnit">单位</label>
                 <select id="boomBaseUnit">
                   <option value="">未设置</option>
                 </select>
               </div>
               <div class="row">
-                <label for="boomBaseDefaultUnitCost">原料价格</label>
+                <label id="boomBaseDefaultUnitCostLabel" for="boomBaseDefaultUnitCost">原料价格</label>
                 <input id="boomBaseDefaultUnitCost" type="number" min="0" step="0.0001" placeholder="原料价格，可选，默认0" />
               </div>
-              <div class="row">
+              <div class="row" id="boomBaseDescriptionRow">
                 <label for="boomBaseDescription">描述</label>
                 <input id="boomBaseDescription" type="text" placeholder="可选" />
+              </div>
+              <div class="row" id="boomBaseMoldPositionRow" style="display: none">
+                <label for="boomBaseMoldPosition">模具位置</label>
+                <input id="boomBaseMoldPosition" type="text" placeholder="如 1号机 / A区" />
+              </div>
+              <div class="row" id="boomBaseProductMaterialRow" style="display: none">
+                <label for="boomBaseProductMaterial">产品原料</label>
+                <input id="boomBaseProductMaterial" type="text" placeholder="如 PP / ABS" />
+              </div>
+              <div class="row" id="boomBaseCavityCountRow" style="display: none">
+                <label for="boomBaseCavityCount">出数</label>
+                <input id="boomBaseCavityCount" type="text" placeholder="如 2 / 4" />
+              </div>
+              <div class="row" id="boomBaseDevelopmentDateRow" style="display: none">
+                <label for="boomBaseDevelopmentDate">开发日期</label>
+                <input id="boomBaseDevelopmentDate" type="date" />
+              </div>
+              <div class="row" id="boomBaseProductionDateRow" style="display: none">
+                <label for="boomBaseProductionDate">量产日期</label>
+                <input id="boomBaseProductionDate" type="date" />
+              </div>
+              <div class="row" id="boomBaseScrapDateRow" style="display: none">
+                <label for="boomBaseScrapDate">报废日期</label>
+                <input id="boomBaseScrapDate" type="date" />
               </div>
               <div class="button-row">
                 <button id="saveBoomBaseItemBtn" type="button">新增项目</button>
@@ -345,7 +370,7 @@
 
           <div class="table-wrap mt12">
             <table>
-              <thead>
+              <thead id="boomBaseItemsHead">
                 <tr>
                   <th>BOOM目录</th>
                   <th>项目名称</th>
@@ -486,8 +511,8 @@
     <!-- 发布新版本时，必须同步修改这里的版本号和更新时间。 -->
     <footer class="app-footer">
       <div class="app-footer-meta">
-        <span>版本：v2026.03.07.2334</span>
-        <span>更新时间：2026-03-07 23:34 CST</span>
+        <span>版本：v2026.03.07.2343</span>
+        <span>更新时间：2026-03-07 23:43 CST</span>
       </div>
     </footer>
 
