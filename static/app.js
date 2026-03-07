@@ -384,7 +384,9 @@ function closeCategoryActionModal() {
 
 async function confirmCategoryActionFromModal() {
   await applyCategoryAction();
-  closeCategoryActionModal();
+  if (el("categoryActionModal").classList.contains("show")) {
+    closeCategoryActionModal();
+  }
 }
 
 function setBoomCategoryAction(action) {
@@ -485,7 +487,9 @@ function closeBoomCategoryActionModal() {
 
 async function confirmBoomCategoryActionFromModal() {
   await applyBoomCategoryAction();
-  closeBoomCategoryActionModal();
+  if (el("boomCategoryActionModal").classList.contains("show")) {
+    closeBoomCategoryActionModal();
+  }
 }
 
 function openProductCategoryMoveModal(productId) {
@@ -2370,6 +2374,7 @@ async function applyCategoryAction() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
+    closeCategoryActionModal();
     toast("目录已重命名");
     await Promise.all([loadCategories(), loadProducts(), loadMaterialProducts()]);
     return;
@@ -2420,6 +2425,7 @@ async function applyBoomCategoryAction() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
+    closeBoomCategoryActionModal();
     toast("BOOM目录已重命名");
     await Promise.all([loadBoomCategories(), loadProducts(), loadMaterialProducts()]);
     return;
