@@ -461,6 +461,10 @@ button.ghost {
   background: #e9f8f6;
 }
 
+.recycle-product-item {
+  cursor: default;
+}
+
 .tree-product-main {
   display: grid;
   grid-template-columns: 88px 1fr;

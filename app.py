@@ -41,7 +41,9 @@ def create_app() -> Flask:
     def stats():
         conn = get_db()
         category_count = conn.execute("SELECT COUNT(*) FROM categories").fetchone()[0]
-        product_count = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        product_count = conn.execute(
+            "SELECT COUNT(*) FROM products WHERE COALESCE(is_deleted, 0) = 0"
+        ).fetchone()[0]
         image_count = conn.execute("SELECT COUNT(*) FROM product_images").fetchone()[0]
         return jsonify(
             {
@@ -133,7 +135,11 @@ def create_app() -> Flask:
         placeholders = ",".join("?" for _ in subtree_ids)
 
         product_count = conn.execute(
-            f"SELECT COUNT(*) FROM products WHERE category_id IN ({placeholders})",
+            f"""
+            SELECT COUNT(*)
+            FROM products
+            WHERE category_id IN ({placeholders}) AND COALESCE(is_deleted, 0) = 0
+            """,
             subtree_ids,
         ).fetchone()[0]
         if product_count > 0:
@@ -154,7 +160,7 @@ def create_app() -> Flask:
         page = max(request.args.get("page", default=1, type=int), 1)
         page_size = min(max(request.args.get("page_size", default=20, type=int), 1), 100)
 
-        where_clauses = []
+        where_clauses = ["COALESCE(p.is_deleted, 0) = 0"]
         params: list[Any] = []
 
         if category_id:
@@ -262,7 +268,7 @@ def create_app() -> Flask:
                 c.name AS category_name
             FROM products p
             LEFT JOIN categories c ON c.id = p.category_id
-            WHERE p.id = ?
+            WHERE p.id = ? AND COALESCE(p.is_deleted, 0) = 0
             """,
             (product_id,),
         ).fetchone()
@@ -372,9 +378,128 @@ def create_app() -> Flask:
     @app.route("/api/products/<int:product_id>", methods=["DELETE"])
     def delete_product(product_id: int):
         conn = get_db()
-        product = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        product = conn.execute(
+            "SELECT id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            (product_id,),
+        ).fetchone()
         if product is None:
             return jsonify({"error": "产品不存在"}), 404
+
+        conn.execute(
+            "UPDATE products SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?",
+            (utc_now(), utc_now(), product_id),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/recycle-bin/products", methods=["GET"])
+    def list_recycle_bin_products():
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT
+                p.id,
+                p.code,
+                p.name,
+                COALESCE(NULLIF(p.chinese_name, ''), p.name) AS chinese_name,
+                p.effect,
+                p.description,
+                p.spray_radius,
+                p.unit_weight,
+                p.package_quantity,
+                p.package_size,
+                p.gross_weight,
+                p.category_id,
+                p.deleted_at,
+                p.updated_at,
+                c.name AS category_name,
+                (
+                    SELECT image_path
+                    FROM product_images pi
+                    WHERE pi.product_id = p.id
+                    ORDER BY pi.sort_order, pi.id
+                    LIMIT 1
+                ) AS first_image
+            FROM products p
+            LEFT JOIN categories c ON c.id = p.category_id
+            WHERE COALESCE(p.is_deleted, 0) = 1
+            ORDER BY
+                COALESCE(p.category_id, 0) ASC,
+                COALESCE(NULLIF(p.chinese_name, ''), p.name, p.code) COLLATE NATURAL_ZH_NUM ASC,
+                p.id ASC
+            """
+        ).fetchall()
+        return jsonify({"items": [dict(row) for row in rows]})
+
+    @app.route("/api/recycle-bin/products/<int:product_id>/restore", methods=["POST"])
+    def restore_recycle_bin_product(product_id: int):
+        conn = get_db()
+        product = conn.execute(
+            """
+            SELECT
+                id,
+                code,
+                category_id,
+                COALESCE(NULLIF(chinese_name, ''), name, '') AS chinese_name
+            FROM products
+            WHERE id = ? AND COALESCE(is_deleted, 0) = 1
+            """,
+            (product_id,),
+        ).fetchone()
+        if product is None:
+            return jsonify({"error": "回收站中不存在该产品"}), 404
+
+        restore_category_id = product["category_id"]
+        if restore_category_id is not None:
+            category_exists = conn.execute(
+                "SELECT id FROM categories WHERE id = ?", (restore_category_id,)
+            ).fetchone()
+            if category_exists is None:
+                restore_category_id = None
+
+        duplicate = conn.execute(
+            """
+            SELECT id, COALESCE(NULLIF(chinese_name, ''), name, '') AS chinese_name
+            FROM products
+            WHERE code = ? AND id != ? AND COALESCE(is_deleted, 0) = 0
+            """,
+            (product["code"], product_id),
+        ).fetchone()
+        if duplicate is not None:
+            return (
+                jsonify(
+                    {
+                        "error": "恢复失败，产品编码已被占用",
+                        "conflict": {
+                            "id": int(duplicate["id"]),
+                            "code": product["code"],
+                            "chinese_name": duplicate["chinese_name"] or "未命名产品",
+                        },
+                    }
+                ),
+                400,
+            )
+
+        conn.execute(
+            """
+            UPDATE products
+            SET is_deleted = 0, deleted_at = NULL, category_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (restore_category_id, utc_now(), product_id),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/recycle-bin/products/<int:product_id>", methods=["DELETE"])
+    def purge_recycle_bin_product(product_id: int):
+        conn = get_db()
+        product = conn.execute(
+            "SELECT id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 1",
+            (product_id,),
+        ).fetchone()
+        if product is None:
+            return jsonify({"error": "回收站中不存在该产品"}), 404
 
         image_rows = conn.execute(
             "SELECT image_path FROM product_images WHERE product_id = ?", (product_id,)
@@ -391,7 +516,10 @@ def create_app() -> Flask:
     @app.route("/api/products/<int:product_id>/images", methods=["POST"])
     def upload_product_image(product_id: int):
         conn = get_db()
-        product = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        product = conn.execute(
+            "SELECT id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            (product_id,),
+        ).fetchone()
         if product is None:
             return jsonify({"error": "产品不存在"}), 404
 
@@ -437,7 +565,7 @@ def create_app() -> Flask:
     def create_product_bom_item(product_id: int):
         conn = get_db()
         product = conn.execute(
-            "SELECT id, category_id FROM products WHERE id = ?",
+            "SELECT id, category_id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
             (product_id,),
         ).fetchone()
         if product is None:
@@ -950,6 +1078,8 @@ def init_db() -> None:
             package_quantity TEXT NOT NULL DEFAULT '',
             package_size TEXT NOT NULL DEFAULT '',
             gross_weight TEXT NOT NULL DEFAULT '',
+            is_deleted INTEGER NOT NULL DEFAULT 0,
+            deleted_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -1028,6 +1158,8 @@ def ensure_product_columns(conn: sqlite3.Connection) -> None:
         "package_quantity": "TEXT NOT NULL DEFAULT ''",
         "package_size": "TEXT NOT NULL DEFAULT ''",
         "gross_weight": "TEXT NOT NULL DEFAULT ''",
+        "is_deleted": "INTEGER NOT NULL DEFAULT 0",
+        "deleted_at": "TEXT",
     }
 
     for column_name, column_type in required_columns.items():
@@ -1189,7 +1321,7 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
         """
         SELECT id, code, COALESCE(NULLIF(chinese_name, ''), name, '') AS chinese_name
         FROM products
-        WHERE code = ?
+        WHERE code = ? AND COALESCE(is_deleted, 0) = 0
         """,
         (code,),
     ).fetchone()
@@ -1229,7 +1361,10 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
         conn.commit()
         return int(cursor.lastrowid)
 
-    current = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+    current = conn.execute(
+        "SELECT id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+        (product_id,),
+    ).fetchone()
     if current is None:
         raise LookupError("产品不存在")
 

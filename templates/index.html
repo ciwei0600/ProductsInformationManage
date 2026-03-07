@@ -25,6 +25,7 @@
           <div class="nav-level1">产品管理</div>
           <a class="nav-level2" href="#page-product-list" data-page="page-product-list">筛选与列表</a>
           <a class="nav-level2" href="#page-product-form" data-page="page-product-form">新增/编辑产品</a>
+          <a class="nav-level2" href="#page-product-recycle-bin" data-page="page-product-recycle-bin">产品回收站</a>
           <a class="nav-level2" href="#page-product-images" data-page="page-product-images">产品图片</a>
         </div>
 
@@ -220,6 +221,15 @@
                 <button id="deleteProductBtn" class="danger" type="button" disabled>删除产品</button>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section class="card content-page" id="page-product-recycle-bin">
+          <h2>产品回收站</h2>
+          <div class="hint">已删除产品会保留在这里，可恢复或彻底删除。</div>
+          <div class="category-tree-zone mt12">
+            <h3>目录树</h3>
+            <ul id="recycleBinTree" class="tree"></ul>
           </div>
         </section>
 

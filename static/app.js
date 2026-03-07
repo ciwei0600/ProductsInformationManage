@@ -12,6 +12,8 @@ const state = {
   categoryAction: "add",
   categoryAddMode: "child",
   materialProducts: [],
+  recycleBinProducts: [],
+  recycleExpandedCategoryIds: new Set(),
   boomBaseItems: [],
   rawMaterials: [],
   quoteLines: [],
@@ -456,6 +458,147 @@ function renderCategoryTree() {
   });
 }
 
+function renderRecycleBinTree() {
+  const container = el("recycleBinTree");
+  if (!container) return;
+
+  const parentMap = new Map();
+  for (const category of state.categories) {
+    parentMap.set(category.id, category.parent_id ?? null);
+  }
+
+  const subtreeProducts = new Map();
+  const uncategorizedProducts = [];
+  for (const product of state.recycleBinProducts) {
+    let categoryId = product.category_id == null ? null : Number(product.category_id);
+    if (!categoryId || !parentMap.has(categoryId)) {
+      uncategorizedProducts.push(product);
+      continue;
+    }
+    const visited = new Set();
+    while (categoryId && !visited.has(categoryId)) {
+      visited.add(categoryId);
+      if (!subtreeProducts.has(categoryId)) {
+        subtreeProducts.set(categoryId, []);
+      }
+      subtreeProducts.get(categoryId).push(product);
+      categoryId = parentMap.get(categoryId) ?? null;
+    }
+  }
+
+  function renderProductNode(product) {
+    const name = product.chinese_name || product.name || "-";
+    const imageBlock = product.first_image
+      ? `<img class="tree-product-thumb" src="/media/${product.first_image}" alt="${name}" />`
+      : '<div class="tree-product-no-image">无图</div>';
+    return `
+      <li class="tree-product-item recycle-product-item">
+        <div class="tree-product-main">
+          <div class="tree-product-media">${imageBlock}</div>
+          <div class="tree-product-info">
+            <div class="tree-product-head">
+              <div class="tree-product-title">${product.code || "-"} | ${name}</div>
+              <div class="button-row">
+                <button type="button" class="tree-product-edit-btn" data-recycle-action="restore" data-id="${product.id}">恢复</button>
+                <button type="button" class="danger" data-recycle-action="purge" data-id="${product.id}">彻底删除</button>
+              </div>
+            </div>
+            <div class="tree-product-grid">
+              <div>作用：${product.effect || "-"}</div>
+              <div>喷洒半径：${product.spray_radius || "-"}</div>
+              <div>单个重量：${product.unit_weight || "-"}</div>
+              <div>包装数量：${product.package_quantity || "-"}</div>
+              <div>包装尺寸：${product.package_size || "-"}</div>
+              <div>总重量：${product.gross_weight || "-"}</div>
+              <div>目录：${product.category_name || "未分类"}</div>
+              <div>删除时间：${product.deleted_at || "-"}</div>
+            </div>
+          </div>
+        </div>
+      </li>
+    `;
+  }
+
+  function renderNodes(nodes, depth = 0) {
+    let html = "";
+    for (const node of nodes) {
+      const products = subtreeProducts.get(node.id) || [];
+      const hasContent = products.length > 0;
+      const expanded = state.recycleExpandedCategoryIds.has(node.id);
+      const sign = hasContent ? (expanded ? "-" : "+") : "·";
+      const signClass = hasContent ? "tree-sign" : "tree-sign empty";
+      const padding = 10 + depth * 14;
+      html += `<li>
+        <div
+          class="tree-item"
+          data-recycle-category-id="${node.id}"
+          data-expandable="${hasContent ? "1" : "0"}"
+          style="padding-left:${padding}px"
+        >
+          <span class="${signClass}">${sign}</span>
+          <span>${node.name}</span>
+        </div>
+      `;
+      if (node.children && node.children.length > 0) {
+        html += `<ul class="tree">${renderNodes(node.children, depth + 1)}</ul>`;
+      }
+      if (expanded && products.length > 0) {
+        html += `<ul class="tree-products">${products.map(renderProductNode).join("")}</ul>`;
+      }
+      html += "</li>";
+    }
+    return html;
+  }
+
+  let html = "";
+  if (uncategorizedProducts.length > 0) {
+    html += `
+      <li>
+        <div class="tree-item active">
+          <span class="tree-sign empty">·</span>
+          <span>未分类</span>
+        </div>
+        <ul class="tree-products">${uncategorizedProducts.map(renderProductNode).join("")}</ul>
+      </li>
+    `;
+  }
+  html += renderNodes(state.categoryTree);
+
+  if (!html) {
+    container.innerHTML = '<li class="hint">回收站为空</li>';
+    return;
+  }
+
+  container.innerHTML = html;
+
+  container.querySelectorAll("[data-recycle-category-id]").forEach((item) => {
+    item.addEventListener("click", () => {
+      if (item.dataset.expandable !== "1") return;
+      const categoryId = Number(item.dataset.recycleCategoryId);
+      if (!categoryId) return;
+      if (state.recycleExpandedCategoryIds.has(categoryId)) {
+        state.recycleExpandedCategoryIds.delete(categoryId);
+      } else {
+        state.recycleExpandedCategoryIds.add(categoryId);
+      }
+      renderRecycleBinTree();
+    });
+  });
+
+  container.querySelectorAll("button[data-recycle-action]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const productId = Number(button.dataset.id);
+      if (!productId) return;
+      if (button.dataset.recycleAction === "restore") {
+        restoreRecycleBinProduct(productId).catch((err) => toast(err.message));
+        return;
+      }
+      purgeRecycleBinProduct(productId).catch((err) => toast(err.message));
+    });
+  });
+}
+
 function renderProducts(items) {
   const body = el("productsBody");
   if (!items.length) {
@@ -504,7 +647,7 @@ function renderProducts(items) {
       const id = Number(button.dataset.id);
       if (!window.confirm("确认删除该产品？")) return;
       await request(`/api/products/${id}`, { method: "DELETE" });
-      toast("产品已删除");
+      toast("产品已移入回收站");
       if (state.selectedTreeProductId === id) {
         state.selectedTreeProductId = null;
         updateEditSelectedProductButtonState();
@@ -512,7 +655,7 @@ function renderProducts(items) {
       if (String(el("productId").value) === String(id)) {
         resetProductForm();
       }
-      await Promise.all([loadProducts(), loadStats(), loadMaterialProducts()]);
+      await Promise.all([loadProducts(), loadStats(), loadMaterialProducts(), loadRecycleBinProducts()]);
     });
   });
 }
@@ -892,6 +1035,7 @@ async function loadCategories() {
 
   renderCategoryTree();
   renderBoomBaseCategoryTree();
+  renderRecycleBinTree();
   await loadBoomBaseItems();
 }
 
@@ -1338,6 +1482,36 @@ async function loadMaterialProducts() {
   renderCategoryTree();
 }
 
+async function loadRecycleBinProducts() {
+  const data = await request("/api/recycle-bin/products");
+  state.recycleBinProducts = data.items || [];
+  renderRecycleBinTree();
+}
+
+async function restoreRecycleBinProduct(productId) {
+  await request(`/api/recycle-bin/products/${productId}/restore`, { method: "POST" });
+  toast("产品已恢复");
+  await Promise.all([
+    loadRecycleBinProducts(),
+    loadProducts(),
+    loadStats(),
+    loadMaterialProducts(),
+  ]);
+}
+
+async function purgeRecycleBinProduct(productId) {
+  if (!window.confirm("确认彻底删除该产品？")) return;
+  if (!window.confirm("请再次确认：彻底删除后无法恢复，是否继续？")) return;
+  await request(`/api/recycle-bin/products/${productId}`, { method: "DELETE" });
+  toast("产品已彻底删除");
+  await Promise.all([
+    loadRecycleBinProducts(),
+    loadProducts(),
+    loadStats(),
+    loadMaterialProducts(),
+  ]);
+}
+
 async function editSelectedTreeProduct() {
   const productId = Number(state.selectedTreeProductId);
   if (!productId) {
@@ -1499,10 +1673,10 @@ async function deleteProductFromDetail() {
   }
 
   if (!window.confirm("确认删除当前产品？")) return;
-  if (!window.confirm("请再次确认：删除后不可恢复，是否继续？")) return;
+  if (!window.confirm("请再次确认：产品会进入回收站，是否继续？")) return;
 
   await request(`/api/products/${productId}`, { method: "DELETE" });
-  toast("产品已删除");
+  toast("产品已移入回收站");
 
   if (state.selectedTreeProductId === productId) {
     state.selectedTreeProductId = null;
@@ -1510,7 +1684,7 @@ async function deleteProductFromDetail() {
   }
 
   resetProductForm();
-  await Promise.all([loadProducts(), loadStats(), loadMaterialProducts()]);
+  await Promise.all([loadProducts(), loadStats(), loadMaterialProducts(), loadRecycleBinProducts()]);
 }
 
 async function applyCategoryAction() {
@@ -1775,7 +1949,7 @@ async function bootstrap() {
   el("quoteDate").value = new Date().toISOString().slice(0, 10);
 
   await Promise.all([loadCategories(), loadStats()]);
-  await Promise.all([loadProducts(), loadMaterialProducts(), loadRawMaterials()]);
+  await Promise.all([loadProducts(), loadMaterialProducts(), loadRawMaterials(), loadRecycleBinProducts()]);
 }
 
 bootstrap().catch((err) => {
