@@ -21,9 +21,11 @@ const state = {
   packagingExpandedCategoryIds: new Set(),
   boomBaseItems: [],
   quoteLines: [],
+  currentProductSpecs: [],
   currentProductBomItems: [],
   currentProductBoomBaseItems: [],
   currentProductBomTotalCost: 0,
+  editingProductSpecId: null,
   editingBomItemId: null,
   editingBoomBaseItemId: null,
 };
@@ -924,6 +926,127 @@ function setBomEditorEnabled(enabled) {
   });
 }
 
+function setProductSpecEditorEnabled(enabled) {
+  const hint = el("productSpecEditorHint");
+  const editor = el("productSpecEditor");
+  if (!hint || !editor) return;
+
+  hint.textContent = enabled ? "可为当前产品新增多个规格。" : "请先保存产品后，再维护规格。";
+
+  editor.querySelectorAll("input, button").forEach((node) => {
+    node.disabled = !enabled;
+  });
+}
+
+function resetProductSpecEditor() {
+  state.editingProductSpecId = null;
+  el("productSpecName").value = "";
+  el("saveProductSpecBtn").textContent = "新增规格";
+  el("cancelProductSpecEditBtn").style.display = "none";
+}
+
+function startEditProductSpec(specId) {
+  const item = state.currentProductSpecs.find((row) => row.id === specId);
+  if (!item) {
+    throw new Error("未找到要修改的规格");
+  }
+
+  state.editingProductSpecId = specId;
+  el("productSpecName").value = item.spec_name || "";
+  el("saveProductSpecBtn").textContent = "保存修改";
+  el("cancelProductSpecEditBtn").style.display = "";
+}
+
+function renderProductSpecs(items) {
+  const body = el("productSpecsBody");
+  state.currentProductSpecs = [...items];
+
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="2" class="hint">暂无规格</td></tr>';
+    return;
+  }
+
+  body.innerHTML = items
+    .map(
+      (item) => `
+      <tr>
+        <td>${escapeHtml(item.spec_name || "-")}</td>
+        <td>
+          <div class="button-row">
+            <button type="button" data-product-spec-action="edit" data-id="${item.id}">修改</button>
+            <button type="button" class="danger" data-product-spec-action="delete" data-id="${item.id}">删除</button>
+          </div>
+        </td>
+      </tr>
+      `
+    )
+    .join("");
+
+  body.querySelectorAll("button[data-product-spec-action='edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const specId = Number(button.dataset.id);
+      try {
+        startEditProductSpec(specId);
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+  });
+
+  body.querySelectorAll("button[data-product-spec-action='delete']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const specId = Number(button.dataset.id);
+      deleteProductSpec(specId).catch((err) => toast(err.message));
+    });
+  });
+}
+
+function buildProductSpecPayload() {
+  const specName = el("productSpecName").value.trim();
+  if (!specName) {
+    throw new Error("规格名称不能为空");
+  }
+  return { spec_name: specName };
+}
+
+async function saveProductSpec() {
+  const productId = Number(el("productId").value);
+  if (!productId) {
+    throw new Error("请先保存产品，再维护规格");
+  }
+
+  const payload = buildProductSpecPayload();
+  if (state.editingProductSpecId) {
+    await request(`/api/product-specs/${state.editingProductSpecId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("规格已修改");
+  } else {
+    await request(`/api/products/${productId}/specs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("规格已新增");
+  }
+
+  resetProductSpecEditor();
+  await loadProductDetail(productId);
+}
+
+async function deleteProductSpec(specId) {
+  if (!specId) return;
+  if (!window.confirm("确认删除该规格？")) return;
+  const productId = Number(el("productId").value);
+  await request(`/api/product-specs/${specId}`, { method: "DELETE" });
+  toast("规格已删除");
+  resetProductSpecEditor();
+  if (!productId) return;
+  await loadProductDetail(productId);
+}
+
 function resetBomEditor() {
   state.editingBomItemId = null;
   el("bomBaseItemSelect").value = "";
@@ -1088,6 +1211,10 @@ function resetProductForm() {
   }
   el("imageFile").value = "";
   el("imageList").innerHTML = '<div class="hint">请先选择或保存一个产品后上传图片。</div>';
+  state.currentProductSpecs = [];
+  resetProductSpecEditor();
+  renderProductSpecs([]);
+  setProductSpecEditorEnabled(false);
   state.currentProductBoomBaseItems = [];
   renderProductBoomBaseSelect([], null, "请先保存产品后选择BOOM基础项");
   resetBomEditor();
@@ -1770,6 +1897,9 @@ async function loadProductDetail(id) {
   updateDeleteProductButtonState();
 
   renderProductImages(data.images || []);
+  resetProductSpecEditor();
+  renderProductSpecs(data.specs || []);
+  setProductSpecEditorEnabled(true);
   resetBomEditor();
   await loadProductBoomBaseItems(product.boom_category_id, null);
   renderBomItems(data.bom_items || [], Number(data.bom_total_cost || 0));
@@ -2089,6 +2219,10 @@ function bindEvents() {
     }
   });
 
+  el("saveProductSpecBtn").addEventListener("click", () =>
+    saveProductSpec().catch((err) => toast(err.message))
+  );
+  el("cancelProductSpecEditBtn").addEventListener("click", () => resetProductSpecEditor());
   el("saveBomItemBtn").addEventListener("click", () =>
     saveBomItem().catch((err) => toast(err.message))
   );

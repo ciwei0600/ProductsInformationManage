@@ -422,6 +422,21 @@ def create_app() -> Flask:
             """,
             (product_id,),
         ).fetchall()
+        specs = conn.execute(
+            """
+            SELECT
+                id,
+                product_id,
+                spec_name,
+                sort_order,
+                created_at,
+                updated_at
+            FROM product_specs
+            WHERE product_id = ?
+            ORDER BY sort_order, id
+            """,
+            (product_id,),
+        ).fetchall()
         bom_total_cost = conn.execute(
             """
             SELECT COALESCE(SUM(quantity * unit_cost), 0)
@@ -434,6 +449,7 @@ def create_app() -> Flask:
             {
                 "product": dict(product),
                 "images": [dict(row) for row in images],
+                "specs": [dict(row) for row in specs],
                 "bom_items": [dict(row) for row in bom_items],
                 "bom_total_cost": float(bom_total_cost or 0),
             }
@@ -723,6 +739,74 @@ def create_app() -> Flask:
         conn.commit()
 
         delete_media_file(row["image_path"])
+        return jsonify({"ok": True})
+
+    @app.route("/api/products/<int:product_id>/specs", methods=["POST"])
+    def create_product_spec(product_id: int):
+        conn = get_db()
+        product = conn.execute(
+            "SELECT id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0", (product_id,)
+        ).fetchone()
+        if product is None:
+            return jsonify({"error": "产品不存在"}), 404
+
+        payload = request.get_json(silent=True) or {}
+        spec_name = (payload.get("spec_name") or "").strip()
+        if not spec_name:
+            return jsonify({"error": "规格名称不能为空"}), 400
+
+        sort_order = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_specs WHERE product_id = ?",
+            (product_id,),
+        ).fetchone()[0]
+        now = utc_now()
+        cursor = conn.execute(
+            """
+            INSERT INTO product_specs(product_id, spec_name, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (product_id, spec_name, int(sort_order), now, now),
+        )
+        conn.execute("UPDATE products SET updated_at = ? WHERE id = ?", (now, product_id))
+        conn.commit()
+        return jsonify({"id": int(cursor.lastrowid)})
+
+    @app.route("/api/product-specs/<int:spec_id>", methods=["PUT"])
+    def update_product_spec(spec_id: int):
+        conn = get_db()
+        existing = conn.execute(
+            "SELECT id, product_id FROM product_specs WHERE id = ?", (spec_id,)
+        ).fetchone()
+        if existing is None:
+            return jsonify({"error": "规格不存在"}), 404
+
+        payload = request.get_json(silent=True) or {}
+        spec_name = (payload.get("spec_name") or "").strip()
+        if not spec_name:
+            return jsonify({"error": "规格名称不能为空"}), 400
+
+        now = utc_now()
+        conn.execute(
+            "UPDATE product_specs SET spec_name = ?, updated_at = ? WHERE id = ?",
+            (spec_name, now, spec_id),
+        )
+        conn.execute("UPDATE products SET updated_at = ? WHERE id = ?", (now, existing["product_id"]))
+        conn.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/product-specs/<int:spec_id>", methods=["DELETE"])
+    def delete_product_spec(spec_id: int):
+        conn = get_db()
+        existing = conn.execute(
+            "SELECT id, product_id FROM product_specs WHERE id = ?", (spec_id,)
+        ).fetchone()
+        if existing is None:
+            return jsonify({"error": "规格不存在"}), 404
+
+        now = utc_now()
+        conn.execute("DELETE FROM product_specs WHERE id = ?", (spec_id,))
+        conn.execute("UPDATE products SET updated_at = ? WHERE id = ?", (now, existing["product_id"]))
+        conn.commit()
         return jsonify({"ok": True})
 
     @app.route("/api/products/<int:product_id>/bom-items", methods=["POST"])
@@ -1174,6 +1258,18 @@ def init_db() -> None:
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_product_images_unique
         ON product_images(product_id, image_path);
+
+        CREATE TABLE IF NOT EXISTS product_specs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            spec_name TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_product_specs_product_order
+        ON product_specs(product_id, sort_order, id);
 
         CREATE TABLE IF NOT EXISTS category_boom_base_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
