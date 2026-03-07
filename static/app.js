@@ -13,6 +13,7 @@ const state = {
   treeDropCategoryId: null,
   movingTreeProductId: null,
   selectedMoveCategoryId: null,
+  treeMoveLoading: false,
   selectedBoomBaseCategoryId: null,
   selectedProductMainImagePath: null,
   expandedCategoryIds: new Set(),
@@ -45,6 +46,26 @@ function toast(message) {
   node.textContent = message;
   node.classList.add("show");
   window.setTimeout(() => node.classList.remove("show"), 2200);
+}
+
+function setTreeMoveLoading(loading, message = "正在移动商品...") {
+  state.treeMoveLoading = Boolean(loading);
+  const overlay = el("moveLoadingOverlay");
+  const text = el("moveLoadingText");
+  const confirmBtn = el("productCategoryMoveConfirmBtn");
+  const cancelBtn = el("productCategoryMoveCancelBtn");
+  if (text) {
+    text.textContent = message;
+  }
+  if (overlay) {
+    overlay.classList.toggle("show", state.treeMoveLoading);
+  }
+  if (confirmBtn) {
+    confirmBtn.disabled = state.treeMoveLoading;
+  }
+  if (cancelBtn) {
+    cancelBtn.disabled = state.treeMoveLoading;
+  }
 }
 
 async function request(url, options = {}) {
@@ -790,6 +811,9 @@ async function moveTreeProductToCategory(productId, categoryId) {
   if (!productId || !categoryId) {
     throw new Error("拖拽移动失败");
   }
+  if (state.treeMoveLoading) {
+    return;
+  }
 
   const product = state.materialProducts.find((item) => item.id === productId);
   if (!product) {
@@ -804,25 +828,36 @@ async function moveTreeProductToCategory(productId, categoryId) {
     return;
   }
 
-  await request(`/api/products/${productId}/move-category`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ category_id: categoryId }),
-  });
+  setTreeMoveLoading(true, "正在移动商品...");
+  let moved = false;
+  try {
+    await request(`/api/products/${productId}/move-category`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category_id: categoryId }),
+    });
 
-  state.draggingTreeProductId = null;
-  state.treeDropCategoryId = categoryId;
-  state.selectedTreeCategoryId = categoryId;
-  state.selectedTreeProductId = productId;
-  state.expandedCategoryIds.add(categoryId);
-  toast("产品目录已移动");
+    state.draggingTreeProductId = null;
+    state.treeDropCategoryId = categoryId;
+    state.selectedTreeCategoryId = categoryId;
+    state.selectedTreeProductId = productId;
+    state.expandedCategoryIds.add(categoryId);
+    toast("产品目录已移动");
 
-  await Promise.all([loadProducts(), loadMaterialProducts()]);
-  if (Number(el("productId").value) === productId) {
-    el("productCategory").value = String(categoryId);
+    await Promise.all([loadProducts(), loadMaterialProducts()]);
+    if (Number(el("productId").value) === productId) {
+      el("productCategory").value = String(categoryId);
+    }
+    moved = true;
+    renderCategoryTree();
+  } finally {
+    state.draggingTreeProductId = null;
+    state.treeDropCategoryId = null;
+    if (!moved) {
+      renderCategoryTree();
+    }
+    setTreeMoveLoading(false);
   }
-  state.treeDropCategoryId = null;
-  renderCategoryTree();
 }
 
 function renderRecycleBinTree() {

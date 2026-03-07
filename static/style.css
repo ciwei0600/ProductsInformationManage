@@ -745,6 +745,55 @@ td {
   transform: translateY(0);
 }
 
+.move-loading-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.22);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+  z-index: 40;
+}
+
+.move-loading-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.move-loading-card {
+  min-width: 180px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16);
+  color: #0f172a;
+}
+
+.move-loading-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 3px solid #cbd5e1;
+  border-top-color: var(--primary);
+  animation: moveSpin 0.72s linear infinite;
+}
+
+@keyframes moveSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .category-action-modal {
   position: fixed;
   inset: 0;
