@@ -862,7 +862,7 @@ function renderProductImages(images) {
 function renderProductBoomBaseSelect(
   items,
   selectedBaseItemId = null,
-  placeholder = "选择BOOM基础项（可选）"
+  placeholder = "选择BOOM具体名称"
 ) {
   const select = el("bomBaseItemSelect");
   if (!select) return;
@@ -896,13 +896,17 @@ async function loadProductBoomBaseItems(boomCategoryId, selectedBaseItemId = nul
 
 function applySelectedProductBoomBaseItem() {
   const selectedId = Number(el("bomBaseItemSelect").value);
-  if (!selectedId) return;
+  if (!selectedId) {
+    el("bomItemUnit").value = "";
+    return;
+  }
   const selected = state.currentProductBoomBaseItems.find((item) => item.id === selectedId);
-  if (!selected) return;
+  if (!selected) {
+    el("bomItemUnit").value = "";
+    return;
+  }
 
-  el("bomItemName").value = selected.item_name || "";
   el("bomItemUnit").value = selected.unit || "";
-  el("bomItemUnitCost").value = formatDecimal(Number(selected.default_unit_cost || 0), 6);
 }
 
 function setBomEditorEnabled(enabled) {
@@ -922,12 +926,8 @@ function setBomEditorEnabled(enabled) {
 function resetBomEditor() {
   state.editingBomItemId = null;
   el("bomBaseItemSelect").value = "";
-  el("bomItemName").value = "";
-  el("bomItemSpec").value = "";
   el("bomItemUnit").value = "";
   el("bomItemQty").value = "0";
-  el("bomItemUnitCost").value = "0";
-  el("bomItemRemark").value = "";
   el("saveBomItemBtn").textContent = "新增项目";
   el("cancelBomEditBtn").style.display = "none";
 }
@@ -940,12 +940,8 @@ function startEditBomItem(bomItemId) {
 
   state.editingBomItemId = bomItemId;
   el("bomBaseItemSelect").value = item.base_item_id ? String(item.base_item_id) : "";
-  el("bomItemName").value = item.item_name || "";
-  el("bomItemSpec").value = item.item_spec || "";
   el("bomItemUnit").value = item.unit || "";
   el("bomItemQty").value = formatDecimal(item.quantity, 6);
-  el("bomItemUnitCost").value = formatDecimal(item.unit_cost, 6);
-  el("bomItemRemark").value = item.remark || "";
   el("saveBomItemBtn").textContent = "保存修改";
   el("cancelBomEditBtn").style.display = "";
 }
@@ -1007,28 +1003,19 @@ function renderBomItems(items, totalCost = 0) {
 }
 
 function buildBomItemPayload() {
-  const itemName = el("bomItemName").value.trim();
-  if (!itemName) {
-    throw new Error("BOM项目名称不能为空");
+  const baseItemId = el("bomBaseItemSelect").value ? Number(el("bomBaseItemSelect").value) : null;
+  if (!baseItemId) {
+    throw new Error("请选择BOOM具体名称");
   }
 
   const quantity = Number(el("bomItemQty").value || "0");
-  const unitCost = Number(el("bomItemUnitCost").value || "0");
   if (!Number.isFinite(quantity) || quantity < 0) {
     throw new Error("BOM数量必须大于等于0");
   }
-  if (!Number.isFinite(unitCost) || unitCost < 0) {
-    throw new Error("BOM单价必须大于等于0");
-  }
 
   return {
-    base_item_id: el("bomBaseItemSelect").value ? Number(el("bomBaseItemSelect").value) : null,
-    item_name: itemName,
-    item_spec: el("bomItemSpec").value.trim(),
-    unit: el("bomItemUnit").value.trim(),
+    base_item_id: baseItemId,
     quantity,
-    unit_cost: unitCost,
-    remark: el("bomItemRemark").value.trim(),
   };
 }
 
