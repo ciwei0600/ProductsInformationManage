@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -21,6 +22,8 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 NATURAL_TOKEN_PATTERN = re.compile(r"(\d+(?:\.\d+)?)")
 UPLOAD_WEBP_QUALITY = 80
 UPLOAD_WEBP_MAX_EDGE = 1800
+IMAGE_MIGRATION_THREAD_STARTED = False
+IMAGE_MIGRATION_THREAD_LOCK = threading.Lock()
 
 
 def create_app() -> Flask:
@@ -29,6 +32,7 @@ def create_app() -> Flask:
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     THUMB_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
+    start_image_migration_thread()
 
     @app.route("/")
     def index() -> str:
@@ -1512,7 +1516,6 @@ def init_db() -> None:
     seed_boom_categories_from_product_categories(conn)
     backfill_boom_base_categories(conn)
     backfill_product_boom_categories(conn)
-    migrate_existing_product_images_to_webp(conn)
     conn.commit()
     conn.close()
 
@@ -2224,6 +2227,33 @@ def migrate_existing_product_images_to_webp(conn: sqlite3.Connection) -> None:
             "UPDATE products SET updated_at = ? WHERE id = ?",
             [(now, product_id) for product_id in changed_product_ids],
         )
+
+
+def run_image_migration_job() -> None:
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        migrate_existing_product_images_to_webp(conn)
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        print(f"[image-migration] failed: {exc}")
+    finally:
+        conn.close()
+
+
+def start_image_migration_thread() -> None:
+    global IMAGE_MIGRATION_THREAD_STARTED
+    with IMAGE_MIGRATION_THREAD_LOCK:
+        if IMAGE_MIGRATION_THREAD_STARTED:
+            return
+        IMAGE_MIGRATION_THREAD_STARTED = True
+        thread = threading.Thread(
+            target=run_image_migration_job,
+            name="product-image-webp-migration",
+            daemon=True,
+        )
+        thread.start()
 
 
 def delete_media_file(image_path: str) -> None:
