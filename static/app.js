@@ -1313,6 +1313,9 @@ async function loadBoomCategories() {
   ) {
     state.selectedBoomBaseCategoryId = null;
   }
+  if (!state.selectedBoomBaseCategoryId && state.boomCategoryTree.length > 0) {
+    state.selectedBoomBaseCategoryId = Number(state.boomCategoryTree[0].id) || null;
+  }
 
   setBoomCategoryAction(state.boomCategoryAction);
   renderBoomBaseCategoryTree();
