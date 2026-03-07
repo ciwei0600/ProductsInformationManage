@@ -435,7 +435,7 @@ def create_app() -> Flask:
             {where_sql}
             ORDER BY
                 COALESCE(p.category_id, 0) ASC,
-                COALESCE(NULLIF(p.chinese_name, ''), p.name, p.code) COLLATE NATURAL_ZH_NUM ASC,
+                p.code COLLATE NATURAL_ZH_NUM ASC,
                 p.id ASC
             LIMIT ? OFFSET ?
             """,
@@ -699,7 +699,7 @@ def create_app() -> Flask:
             WHERE COALESCE(p.is_deleted, 0) = 1
             ORDER BY
                 COALESCE(p.category_id, 0) ASC,
-                COALESCE(NULLIF(p.chinese_name, ''), p.name, p.code) COLLATE NATURAL_ZH_NUM ASC,
+                p.code COLLATE NATURAL_ZH_NUM ASC,
                 p.id ASC
             """
         ).fetchall()
