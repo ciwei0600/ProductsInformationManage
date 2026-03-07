@@ -12,6 +12,7 @@ const state = {
   draggingTreeProductId: null,
   treeDropCategoryId: null,
   movingTreeProductId: null,
+  selectedMoveCategoryId: null,
   selectedBoomBaseCategoryId: null,
   selectedProductMainImagePath: null,
   expandedCategoryIds: new Set(),
@@ -497,14 +498,16 @@ function openProductCategoryMoveModal(productId) {
   }
 
   state.movingTreeProductId = productId;
-  fillCategorySelect("productCategoryMoveSelect");
-  el("productCategoryMoveSelect").value = product.category_id == null ? "" : String(product.category_id);
+  state.selectedMoveCategoryId = product.category_id == null ? null : Number(product.category_id);
+  expandCategoryAncestors(state.selectedMoveCategoryId);
   el("productCategoryMoveHint").textContent = `当前产品：${product.code || "-"} | ${product.chinese_name || product.name || "-"}`;
+  renderProductCategoryMoveTree();
   el("productCategoryMoveModal").classList.add("show");
 }
 
 function closeProductCategoryMoveModal() {
   state.movingTreeProductId = null;
+  state.selectedMoveCategoryId = null;
   el("productCategoryMoveModal").classList.remove("show");
 }
 
@@ -513,12 +516,87 @@ async function confirmProductCategoryMove() {
   if (!productId) {
     throw new Error("请选择要修改目录的商品");
   }
-  const categoryId = Number(el("productCategoryMoveSelect").value);
+  const categoryId = Number(state.selectedMoveCategoryId);
   if (!categoryId) {
     throw new Error("请选择目标目录");
   }
   await moveTreeProductToCategory(productId, categoryId);
   closeProductCategoryMoveModal();
+}
+
+function updateProductCategoryMoveSelectedHint() {
+  const node = el("productCategoryMoveSelectedHint");
+  if (!node) return;
+  if (!state.selectedMoveCategoryId) {
+    node.textContent = "请选择目标目录";
+    return;
+  }
+  const path = categoryPathMap().get(state.selectedMoveCategoryId);
+  node.textContent = `已选择：${path || `目录 #${state.selectedMoveCategoryId}`}`;
+}
+
+function expandCategoryAncestors(categoryId) {
+  let currentId = Number(categoryId);
+  if (!currentId) return;
+  const parentMap = new Map();
+  for (const category of state.categories) {
+    parentMap.set(category.id, category.parent_id ?? null);
+  }
+  while (currentId) {
+    state.expandedCategoryIds.add(currentId);
+    currentId = Number(parentMap.get(currentId) || 0);
+  }
+}
+
+function renderProductCategoryMoveTree() {
+  const container = el("productCategoryMoveTree");
+  if (!container) return;
+  updateProductCategoryMoveSelectedHint();
+
+  function renderNodes(nodes, depth = 0) {
+    let html = "";
+    for (const node of nodes) {
+      const hasChildren = Boolean(node.children && node.children.length > 0);
+      const expanded = state.expandedCategoryIds.has(node.id);
+      const active = state.selectedMoveCategoryId === node.id ? "active" : "";
+      const sign = hasChildren ? (expanded ? "-" : "+") : "·";
+      const signClass = hasChildren ? "tree-sign" : "tree-sign empty";
+      const padding = 10 + depth * 14;
+      html += `<li>
+        <div
+          class="tree-item ${active}"
+          data-move-category-id="${node.id}"
+          data-expandable="${hasChildren ? "1" : "0"}"
+          style="padding-left:${padding}px"
+        >
+          <span class="${signClass}">${sign}</span>
+          <span>${escapeHtml(node.name)}</span>
+        </div>
+      `;
+      if (expanded && hasChildren) {
+        html += `<ul class="tree">${renderNodes(node.children, depth + 1)}</ul>`;
+      }
+      html += "</li>";
+    }
+    return html;
+  }
+
+  container.innerHTML = `<ul class="tree">${renderNodes(state.categoryTree)}</ul>`;
+  container.querySelectorAll("[data-move-category-id]").forEach((item) => {
+    item.addEventListener("click", () => {
+      const id = Number(item.dataset.moveCategoryId);
+      if (!id) return;
+      state.selectedMoveCategoryId = id;
+      if (item.dataset.expandable === "1") {
+        if (state.expandedCategoryIds.has(id)) {
+          state.expandedCategoryIds.delete(id);
+        } else {
+          state.expandedCategoryIds.add(id);
+        }
+      }
+      renderProductCategoryMoveTree();
+    });
+  });
 }
 
 function renderCategoryTree() {

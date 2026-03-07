@@ -779,6 +779,15 @@ td {
   font-size: 18px;
 }
 
+.product-category-move-tree {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  background: #fbfcfd;
+}
+
 #categoryAddModeRow button.active,
 #boomCategoryAddModeRow button.active {
   border-color: var(--primary);
