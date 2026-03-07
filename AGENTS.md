@@ -1,6 +1,6 @@
 ## Default Skill
 
-For this project, use [$web-design-master](/Users/dong/.codex/skills/web-design-master/SKILL.md) by default for web application design, frontend/backend implementation, UI changes, deployment-related web changes, and operational updates unless the user explicitly asks for a different skill.
+For this project, use [$web-design-master](/Users/dong/Desktop/Projects/ProductsInformationManage/docs/skills/web-design-master/SKILL.md) by default for web application design, frontend/backend implementation, UI changes, deployment-related web changes, and operational updates unless the user explicitly asks for a different skill.
 
 ## Project Rules
 
