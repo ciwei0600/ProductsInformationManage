@@ -19,6 +19,8 @@ DB_PATH = DATA_DIR / "pim.db"
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 NATURAL_TOKEN_PATTERN = re.compile(r"(\d+(?:\.\d+)?)")
+UPLOAD_WEBP_QUALITY = 80
+UPLOAD_WEBP_MAX_EDGE = 1800
 
 
 def create_app() -> Flask:
@@ -862,10 +864,13 @@ def create_app() -> Flask:
         digest = hashlib.md5(
             f"{product_id}:{uploaded.filename}:{datetime.utcnow().timestamp()}".encode("utf-8")
         ).hexdigest()
-        rel_path = f"{product_id}/{digest}{ext}"
+        rel_path = f"{product_id}/{digest}.webp"
         abs_path = MEDIA_DIR / rel_path
         abs_path.parent.mkdir(parents=True, exist_ok=True)
-        uploaded.save(abs_path)
+        try:
+            save_uploaded_image_as_webp(uploaded, abs_path)
+        except (UnidentifiedImageError, OSError, ValueError):
+            return jsonify({"error": "图片处理失败，请上传有效图片"}), 400
 
         image_id = insert_product_image(conn, product_id, rel_path)
         conn.execute("UPDATE products SET updated_at = ? WHERE id = ?", (utc_now(), product_id))
@@ -2127,6 +2132,30 @@ def set_product_cover_image(conn: sqlite3.Connection, product_id: int, image_id:
             "UPDATE product_images SET sort_order = ? WHERE id = ?",
             (index, int(row["id"])),
         )
+
+
+def save_uploaded_image_as_webp(uploaded_file, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        uploaded_file.stream.seek(0)
+        with Image.open(uploaded_file.stream) as image:
+            image = ImageOps.exif_transpose(image)
+            if image.mode == "P":
+                image = image.convert("RGBA")
+            elif image.mode not in ("RGB", "RGBA"):
+                image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+
+            image.thumbnail((UPLOAD_WEBP_MAX_EDGE, UPLOAD_WEBP_MAX_EDGE), Image.Resampling.LANCZOS)
+            image.save(
+                destination,
+                format="WEBP",
+                quality=UPLOAD_WEBP_QUALITY,
+                method=6,
+                optimize=True,
+            )
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def delete_media_file(image_path: str) -> None:
