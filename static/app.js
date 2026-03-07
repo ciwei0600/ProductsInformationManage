@@ -520,8 +520,8 @@ async function confirmProductCategoryMove() {
   if (!categoryId) {
     throw new Error("请选择目标目录");
   }
-  await moveTreeProductToCategory(productId, categoryId);
   closeProductCategoryMoveModal();
+  await moveTreeProductToCategory(productId, categoryId);
 }
 
 function updateProductCategoryMoveSelectedHint() {
