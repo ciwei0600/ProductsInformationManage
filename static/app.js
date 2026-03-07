@@ -246,15 +246,45 @@ function categoryPathMap() {
   return buildPathMap(state.categories);
 }
 
+function displayBoomCategoryName(name) {
+  return String(name || "").replace(/^\s*\d+\s*[.．、。]\s*/, "").trim();
+}
+
+function buildBoomCategoryPathMap() {
+  const children = new Map();
+
+  for (const item of state.boomCategories) {
+    if (!children.has(item.parent_id ?? 0)) {
+      children.set(item.parent_id ?? 0, []);
+    }
+    children.get(item.parent_id ?? 0).push(item);
+  }
+
+  const result = new Map();
+
+  function walk(parentId, prefix) {
+    const list = children.get(parentId) || [];
+    for (const item of list) {
+      const itemName = displayBoomCategoryName(item.name) || item.name || "";
+      const path = prefix ? `${prefix} / ${itemName}` : itemName;
+      result.set(item.id, path);
+      walk(item.id, path);
+    }
+  }
+
+  walk(0, "");
+  return result;
+}
+
 function boomCategoryPathMap() {
-  return buildPathMap(state.boomCategories);
+  return buildBoomCategoryPathMap();
 }
 
 function formatBoomCategoryLabel(category) {
   if (!category) return "";
   const sortOrder = Number(category.sort_order);
   const prefix = Number.isFinite(sortOrder) ? `${sortOrder}. ` : "";
-  return `${prefix}${category.name || ""}`;
+  return `${prefix}${displayBoomCategoryName(category.name) || category.name || ""}`;
 }
 
 function getBoomCategoryAddParentId() {

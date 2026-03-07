@@ -1738,26 +1738,15 @@ def normalize_boom_categories(conn: sqlite3.Connection) -> None:
         return
 
     next_sort_order_by_parent: dict[Optional[int], int] = {}
-    used_names_by_parent: dict[Optional[int], set[str]] = {}
-
     for row in rows:
         parent_id = row["parent_id"]
         next_sort_order = next_sort_order_by_parent.get(parent_id, 1)
         next_sort_order_by_parent[parent_id] = next_sort_order + 1
 
-        current_name = (row["name"] or "").strip()
-        normalized_name = normalize_boom_category_name(current_name) or current_name
-
-        used_names = used_names_by_parent.setdefault(parent_id, set())
-        final_name = normalized_name
-        if final_name in used_names:
-            final_name = current_name
-        used_names.add(final_name)
-
-        if final_name != current_name or int(row["sort_order"] or 0) != next_sort_order:
+        if int(row["sort_order"] or 0) != next_sort_order:
             conn.execute(
-                "UPDATE boom_categories SET name = ?, sort_order = ? WHERE id = ?",
-                (final_name, next_sort_order, row["id"]),
+                "UPDATE boom_categories SET sort_order = ? WHERE id = ?",
+                (next_sort_order, row["id"]),
             )
 
 
