@@ -1739,14 +1739,14 @@ def normalize_boom_categories(conn: sqlite3.Connection) -> None:
 
     next_sort_order_by_parent: dict[Optional[int], int] = {}
     for row in rows:
-        parent_id = row["parent_id"]
+        parent_id = row[1]
         next_sort_order = next_sort_order_by_parent.get(parent_id, 1)
         next_sort_order_by_parent[parent_id] = next_sort_order + 1
 
-        if int(row["sort_order"] or 0) != next_sort_order:
+        if int(row[3] or 0) != next_sort_order:
             conn.execute(
                 "UPDATE boom_categories SET sort_order = ? WHERE id = ?",
-                (next_sort_order, row["id"]),
+                (next_sort_order, row[0]),
             )
 
 
