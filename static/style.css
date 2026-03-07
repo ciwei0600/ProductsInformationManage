@@ -590,6 +590,24 @@ button.ghost {
   box-shadow: 0 0 0 1px #0f766e inset;
 }
 
+.tree-item.dragging-category {
+  opacity: 0.55;
+}
+
+.tree-item.drag-target-before,
+.tree-item.drag-target-after {
+  background: #eefcf9;
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.18) inset;
+}
+
+.tree-item.drag-target-before {
+  border-top: 3px solid #0f766e;
+}
+
+.tree-item.drag-target-after {
+  border-bottom: 3px solid #0f766e;
+}
+
 .tree-product-item.dragging {
   opacity: 0.55;
   border-left-color: #0f766e;

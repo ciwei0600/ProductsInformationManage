@@ -78,9 +78,9 @@ def create_app() -> Flask:
         conn = get_db()
         rows = conn.execute(
             """
-            SELECT id, name, parent_id, created_at
+            SELECT id, name, parent_id, sort_order, created_at
             FROM categories
-            ORDER BY COALESCE(parent_id, 0), id
+            ORDER BY COALESCE(parent_id, 0), sort_order, id
             """
         ).fetchall()
         items = [dict(row) for row in rows]
@@ -104,9 +104,22 @@ def create_app() -> Flask:
             if parent_exists is None:
                 return jsonify({"error": "父级目录不存在"}), 400
 
-        category_id = get_or_create_category(conn, name, parent_id)
+        if parent_id is None:
+            sort_order = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM categories WHERE parent_id IS NULL"
+            ).fetchone()[0]
+        else:
+            sort_order = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM categories WHERE parent_id = ?",
+                (parent_id,),
+            ).fetchone()[0]
+        category_id = get_or_create_category(conn, name, parent_id, int(sort_order))
+        category = conn.execute(
+            "SELECT id, name, parent_id, sort_order FROM categories WHERE id = ?",
+            (category_id,),
+        ).fetchone()
         conn.commit()
-        return jsonify({"id": category_id, "name": name, "parent_id": parent_id})
+        return jsonify(dict(category))
 
     @app.route("/api/categories/<int:category_id>", methods=["PUT"])
     def update_category(category_id: int):
@@ -118,7 +131,7 @@ def create_app() -> Flask:
 
         conn = get_db()
         current = conn.execute(
-            "SELECT id, parent_id FROM categories WHERE id = ?", (category_id,)
+            "SELECT id, parent_id, sort_order FROM categories WHERE id = ?", (category_id,)
         ).fetchone()
         if current is None:
             return jsonify({"error": "目录不存在"}), 404
@@ -138,7 +151,35 @@ def create_app() -> Flask:
         if duplicate is not None:
             return jsonify({"error": "同级目录下已存在同名目录"}), 400
 
-        conn.execute("UPDATE categories SET name = ? WHERE id = ?", (name, category_id))
+        conn.execute(
+            "UPDATE categories SET name = ?, sort_order = ? WHERE id = ?",
+            (name, int(current["sort_order"] or 0), category_id),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/categories/reorder", methods=["PUT"])
+    def reorder_categories():
+        payload = request.get_json(silent=True) or {}
+        try:
+            dragged_id = int(payload.get("dragged_id") or 0)
+            target_id = int(payload.get("target_id") or 0)
+        except (TypeError, ValueError):
+            return jsonify({"error": "目录排序参数不正确"}), 400
+
+        position = str(payload.get("position") or "after").strip().lower()
+        if position not in {"before", "after"}:
+            return jsonify({"error": "目录排序位置不正确"}), 400
+        if not dragged_id or not target_id or dragged_id == target_id:
+            return jsonify({"error": "目录排序参数不正确"}), 400
+
+        conn = get_db()
+        try:
+            reorder_sibling_categories(conn, "categories", dragged_id, target_id, position)
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         conn.commit()
         return jsonify({"ok": True})
 
@@ -169,6 +210,7 @@ def create_app() -> Flask:
             return jsonify({"error": "目录下有子目录，只有空目录才能删除"}), 400
 
         conn.execute("DELETE FROM categories WHERE id = ?", (category_id,))
+        normalize_categories(conn)
         conn.commit()
         return jsonify({"ok": True})
 
@@ -205,11 +247,11 @@ def create_app() -> Flask:
 
         if parent_id is None:
             sort_order = conn.execute(
-                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM boom_categories WHERE parent_id IS NULL"
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM boom_categories WHERE parent_id IS NULL"
             ).fetchone()[0]
         else:
             sort_order = conn.execute(
-                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM boom_categories WHERE parent_id = ?",
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM boom_categories WHERE parent_id = ?",
                 (parent_id,),
             ).fetchone()[0]
         category_id = get_or_create_boom_category(conn, name, parent_id, int(sort_order))
@@ -254,6 +296,31 @@ def create_app() -> Flask:
             "UPDATE boom_categories SET name = ?, sort_order = ? WHERE id = ?",
             (name, int(current["sort_order"] or 0), category_id),
         )
+        conn.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/boom-categories/reorder", methods=["PUT"])
+    def reorder_boom_categories():
+        payload = request.get_json(silent=True) or {}
+        try:
+            dragged_id = int(payload.get("dragged_id") or 0)
+            target_id = int(payload.get("target_id") or 0)
+        except (TypeError, ValueError):
+            return jsonify({"error": "BOOM目录排序参数不正确"}), 400
+
+        position = str(payload.get("position") or "after").strip().lower()
+        if position not in {"before", "after"}:
+            return jsonify({"error": "BOOM目录排序位置不正确"}), 400
+        if not dragged_id or not target_id or dragged_id == target_id:
+            return jsonify({"error": "BOOM目录排序参数不正确"}), 400
+
+        conn = get_db()
+        try:
+            reorder_sibling_categories(conn, "boom_categories", dragged_id, target_id, position)
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         conn.commit()
         return jsonify({"ok": True})
 
@@ -1415,6 +1482,7 @@ def init_db() -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             parent_id INTEGER REFERENCES categories(id) ON DELETE RESTRICT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         );
 
@@ -1527,12 +1595,14 @@ def init_db() -> None:
 
         """
     )
+    ensure_category_columns(conn)
     ensure_product_columns(conn)
     migrate_boom_tables_if_needed(conn)
     ensure_boom_category_columns(conn)
     ensure_product_bom_columns(conn)
     ensure_boom_base_columns(conn)
     backfill_config_units_from_boom_base(conn)
+    normalize_categories(conn)
     seed_boom_categories_from_product_categories(conn)
     normalize_boom_categories(conn)
     backfill_boom_base_categories(conn)
@@ -1591,6 +1661,30 @@ def ensure_product_columns(conn: sqlite3.Connection) -> None:
         UPDATE products
         SET purchase_price = 0
         WHERE purchase_price IS NULL
+        """
+    )
+
+
+def ensure_category_columns(conn: sqlite3.Connection) -> None:
+    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(categories)").fetchall()}
+    created_sort_order_column = False
+    if "sort_order" not in existing_columns:
+        conn.execute("ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+        created_sort_order_column = True
+
+    if created_sort_order_column:
+        conn.execute(
+            """
+            UPDATE categories
+            SET sort_order = id
+            WHERE COALESCE(sort_order, 0) = 0
+            """
+        )
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_categories_parent_order
+        ON categories(parent_id, sort_order, id)
         """
     )
 
@@ -1750,6 +1844,30 @@ def normalize_boom_categories(conn: sqlite3.Connection) -> None:
             )
 
 
+def normalize_categories(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT id, parent_id, sort_order
+        FROM categories
+        ORDER BY COALESCE(parent_id, 0), sort_order, id
+        """
+    ).fetchall()
+    if not rows:
+        return
+
+    next_sort_order_by_parent: dict[Optional[int], int] = {}
+    for row in rows:
+        parent_id = row[1]
+        next_sort_order = next_sort_order_by_parent.get(parent_id, 1)
+        next_sort_order_by_parent[parent_id] = next_sort_order + 1
+
+        if int(row[2] or 0) != next_sort_order:
+            conn.execute(
+                "UPDATE categories SET sort_order = ? WHERE id = ?",
+                (next_sort_order, row[0]),
+            )
+
+
 def ensure_boom_base_columns(conn: sqlite3.Connection) -> None:
     existing_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(category_boom_base_items)").fetchall()
@@ -1808,7 +1926,11 @@ def seed_boom_categories_from_product_categories(conn: sqlite3.Connection) -> No
         return
 
     rows = conn.execute(
-        "SELECT id, name, parent_id, created_at FROM categories ORDER BY COALESCE(parent_id, 0), id"
+        """
+        SELECT id, name, parent_id, sort_order, created_at
+        FROM categories
+        ORDER BY COALESCE(parent_id, 0), sort_order, id
+        """
     ).fetchall()
     for row in rows:
         conn.execute(
@@ -1820,8 +1942,8 @@ def seed_boom_categories_from_product_categories(conn: sqlite3.Connection) -> No
                 row[0],
                 row[1],
                 row[2],
-                row[0],
-                row[3] or utc_now(),
+                int(row[3] or 0),
+                row[4] or utc_now(),
             ),
         )
 
@@ -1909,6 +2031,64 @@ def get_descendant_boom_category_ids(conn: sqlite3.Connection, category_id: int)
         (category_id,),
     ).fetchall()
     return [row["id"] for row in rows]
+
+
+def reorder_sibling_categories(
+    conn: sqlite3.Connection, table_name: str, dragged_id: int, target_id: int, position: str
+) -> None:
+    if table_name not in {"categories", "boom_categories"}:
+        raise ValueError("不支持的目录表")
+
+    dragged = conn.execute(
+        f"SELECT id, parent_id FROM {table_name} WHERE id = ?",
+        (dragged_id,),
+    ).fetchone()
+    target = conn.execute(
+        f"SELECT id, parent_id FROM {table_name} WHERE id = ?",
+        (target_id,),
+    ).fetchone()
+    if dragged is None or target is None:
+        raise LookupError("目录不存在")
+
+    dragged_parent_id = dragged[1]
+    target_parent_id = target[1]
+    if dragged_parent_id != target_parent_id:
+        raise ValueError("只能调整同级目录的顺序")
+
+    if dragged_parent_id is None:
+        siblings = conn.execute(
+            f"""
+            SELECT id
+            FROM {table_name}
+            WHERE parent_id IS NULL
+            ORDER BY sort_order, id
+            """
+        ).fetchall()
+    else:
+        siblings = conn.execute(
+            f"""
+            SELECT id
+            FROM {table_name}
+            WHERE parent_id = ?
+            ORDER BY sort_order, id
+            """,
+            (dragged_parent_id,),
+        ).fetchall()
+
+    ordered_ids = [int(row[0]) for row in siblings if int(row[0]) != dragged_id]
+    try:
+        target_index = ordered_ids.index(target_id)
+    except ValueError as exc:
+        raise LookupError("目标目录不存在") from exc
+
+    insert_index = target_index if position == "before" else target_index + 1
+    ordered_ids.insert(insert_index, dragged_id)
+
+    for sort_order, category_id in enumerate(ordered_ids, start=1):
+        conn.execute(
+            f"UPDATE {table_name} SET sort_order = ? WHERE id = ?",
+            (sort_order, category_id),
+        )
 
 
 def parse_optional_int(value: Any, field_name: str) -> Optional[int]:
@@ -2112,7 +2292,9 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
     return product_id
 
 
-def get_or_create_category(conn: sqlite3.Connection, name: str, parent_id: Optional[int]) -> int:
+def get_or_create_category(
+    conn: sqlite3.Connection, name: str, parent_id: Optional[int], sort_order: int
+) -> int:
     name = name.strip()
     if not name:
         raise ValueError("目录名称不能为空")
@@ -2132,8 +2314,8 @@ def get_or_create_category(conn: sqlite3.Connection, name: str, parent_id: Optio
         return int(row["id"])
 
     cursor = conn.execute(
-        "INSERT INTO categories(name, parent_id, created_at) VALUES (?, ?, ?)",
-        (name, parent_id, utc_now()),
+        "INSERT INTO categories(name, parent_id, sort_order, created_at) VALUES (?, ?, ?, ?)",
+        (name, parent_id, int(sort_order), utc_now()),
     )
     return int(cursor.lastrowid)
 

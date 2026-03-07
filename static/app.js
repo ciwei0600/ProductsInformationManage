@@ -11,10 +11,16 @@ const state = {
   selectedTreeProductId: null,
   draggingTreeProductId: null,
   treeDropCategoryId: null,
+  draggingTreeCategoryId: null,
+  treeCategoryDropTargetId: null,
+  treeCategoryDropPosition: null,
   movingTreeProductId: null,
   selectedMoveCategoryId: null,
   treeMoveLoading: false,
   selectedBoomBaseCategoryId: null,
+  draggingBoomCategoryId: null,
+  boomCategoryDropTargetId: null,
+  boomCategoryDropPosition: null,
   selectedProductMainImagePath: null,
   expandedCategoryIds: new Set(),
   categoryAction: "add",
@@ -285,6 +291,55 @@ function formatBoomCategoryLabel(category) {
   const sortOrder = Number(category.sort_order);
   const prefix = Number.isFinite(sortOrder) ? `${sortOrder}. ` : "";
   return `${prefix}${displayBoomCategoryName(category.name) || category.name || ""}`;
+}
+
+function findTreeCategoryById(items, rawId) {
+  const id = Number(rawId);
+  if (!id) return null;
+  return items.find((item) => Number(item.id) === id) || null;
+}
+
+function canReorderSiblingCategory(items, draggedId, targetId) {
+  const dragged = findTreeCategoryById(items, draggedId);
+  const target = findTreeCategoryById(items, targetId);
+  if (!dragged || !target || dragged.id === target.id) {
+    return false;
+  }
+  return (dragged.parent_id ?? null) === (target.parent_id ?? null);
+}
+
+function getTreeDropPosition(event, item) {
+  const rect = item.getBoundingClientRect();
+  return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+}
+
+function clearTreeCategoryDropIndicator(container, targetKey, positionKey) {
+  state[targetKey] = null;
+  state[positionKey] = null;
+  if (!container) return;
+  container.querySelectorAll(".drag-target-before, .drag-target-after").forEach((node) => {
+    node.classList.remove("drag-target-before", "drag-target-after");
+  });
+}
+
+function updateTreeCategoryDropIndicator(container, targetKey, positionKey, selector, targetId, position) {
+  clearTreeCategoryDropIndicator(container, targetKey, positionKey);
+  state[targetKey] = Number(targetId) || null;
+  state[positionKey] = position || null;
+  if (!container || !state[targetKey] || !state[positionKey]) return;
+  const target = container.querySelector(`${selector}="${state[targetKey]}"]`);
+  if (!target) return;
+  target.classList.add(position === "before" ? "drag-target-before" : "drag-target-after");
+}
+
+function clearProductCategoryReorderState(container = el("categoryTree")) {
+  state.draggingTreeCategoryId = null;
+  clearTreeCategoryDropIndicator(container, "treeCategoryDropTargetId", "treeCategoryDropPosition");
+}
+
+function clearBoomCategoryReorderState(container = el("boomBaseCategoryTree")) {
+  state.draggingBoomCategoryId = null;
+  clearTreeCategoryDropIndicator(container, "boomCategoryDropTargetId", "boomCategoryDropPosition");
 }
 
 function getBoomCategoryAddParentId() {
@@ -690,6 +745,13 @@ function renderCategoryTree() {
     for (const node of nodes) {
       const active = state.selectedTreeCategoryId === node.id ? "active" : "";
       const dropTarget = state.treeDropCategoryId === node.id ? "drag-target" : "";
+      const reorderBefore = state.treeCategoryDropTargetId === node.id && state.treeCategoryDropPosition === "before"
+        ? "drag-target-before"
+        : "";
+      const reorderAfter = state.treeCategoryDropTargetId === node.id && state.treeCategoryDropPosition === "after"
+        ? "drag-target-after"
+        : "";
+      const draggingCategory = state.draggingTreeCategoryId === node.id ? "dragging-category" : "";
       const products = categoryProducts.get(node.id) || [];
       const hasChildren = Boolean(node.children && node.children.length > 0);
       const hasContent = hasChildren || products.length > 0;
@@ -699,10 +761,11 @@ function renderCategoryTree() {
       const padding = 10 + depth * 14;
       html += `<li>
         <div
-          class="tree-item ${active} ${dropTarget}"
+          class="tree-item ${active} ${dropTarget} ${reorderBefore} ${reorderAfter} ${draggingCategory}"
           data-id="${node.id}"
           data-expandable="${hasContent ? "1" : "0"}"
           style="padding-left:${padding}px"
+          draggable="true"
         >
           <span class="${signClass}">${sign}</span>
           <span>${node.name}</span>
@@ -776,33 +839,88 @@ function renderCategoryTree() {
       renderCategoryTree();
     });
 
-    item.addEventListener("dragover", (event) => {
-      if (!state.draggingTreeProductId) return;
-      event.preventDefault();
+    item.addEventListener("dragstart", (event) => {
       const categoryId = Number(item.dataset.id);
       if (!categoryId) return;
-      state.treeDropCategoryId = categoryId;
-      item.classList.add("drag-target");
+      state.draggingTreeProductId = null;
+      state.treeDropCategoryId = null;
+      state.draggingTreeCategoryId = categoryId;
+      item.classList.add("dragging-category");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(categoryId));
+      }
     });
 
-    item.addEventListener("dragleave", () => {
+    item.addEventListener("dragover", (event) => {
+      const categoryId = Number(item.dataset.id);
+      if (!categoryId) return;
+      if (state.draggingTreeProductId) {
+        event.preventDefault();
+        state.treeDropCategoryId = categoryId;
+        item.classList.add("drag-target");
+        return;
+      }
+      if (!state.draggingTreeCategoryId) return;
+      if (!canReorderSiblingCategory(state.categories, state.draggingTreeCategoryId, categoryId)) {
+        clearTreeCategoryDropIndicator(
+          container,
+          "treeCategoryDropTargetId",
+          "treeCategoryDropPosition"
+        );
+        return;
+      }
+      event.preventDefault();
+      updateTreeCategoryDropIndicator(
+        container,
+        "treeCategoryDropTargetId",
+        "treeCategoryDropPosition",
+        '[data-id',
+        categoryId,
+        getTreeDropPosition(event, item)
+      );
+    });
+
+    item.addEventListener("dragleave", (event) => {
       const categoryId = Number(item.dataset.id);
       if (state.treeDropCategoryId === categoryId) {
         state.treeDropCategoryId = null;
       }
       item.classList.remove("drag-target");
+      if (
+        state.treeCategoryDropTargetId === categoryId &&
+        !item.contains(event.relatedTarget)
+      ) {
+        clearTreeCategoryDropIndicator(
+          container,
+          "treeCategoryDropTargetId",
+          "treeCategoryDropPosition"
+        );
+      }
     });
 
     item.addEventListener("drop", (event) => {
-      if (!state.draggingTreeProductId) return;
       event.preventDefault();
       event.stopPropagation();
       const categoryId = Number(item.dataset.id);
       if (!categoryId) return;
-      const productId = Number(state.draggingTreeProductId);
-      state.treeDropCategoryId = null;
-      item.classList.remove("drag-target");
-      moveTreeProductToCategory(productId, categoryId).catch((err) => toast(err.message));
+      if (state.draggingTreeProductId) {
+        const productId = Number(state.draggingTreeProductId);
+        state.treeDropCategoryId = null;
+        item.classList.remove("drag-target");
+        moveTreeProductToCategory(productId, categoryId).catch((err) => toast(err.message));
+        return;
+      }
+      if (!state.draggingTreeCategoryId) return;
+      const draggedId = Number(state.draggingTreeCategoryId);
+      const position = state.treeCategoryDropPosition || "after";
+      clearProductCategoryReorderState(container);
+      reorderTreeCategory(draggedId, categoryId, position).catch((err) => toast(err.message));
+    });
+
+    item.addEventListener("dragend", () => {
+      clearProductCategoryReorderState(container);
+      item.classList.remove("dragging-category");
     });
   });
 
@@ -819,6 +937,7 @@ function renderCategoryTree() {
     item.addEventListener("dragstart", (event) => {
       const productId = Number(item.dataset.productId);
       if (!productId) return;
+      clearProductCategoryReorderState(container);
       state.draggingTreeProductId = productId;
       state.treeDropCategoryId = null;
       item.classList.add("dragging");
@@ -909,6 +1028,25 @@ async function moveTreeProductToCategory(productId, categoryId) {
     }
     setTreeMoveLoading(false);
   }
+}
+
+async function reorderTreeCategory(draggedId, targetId, position) {
+  if (!canReorderSiblingCategory(state.categories, draggedId, targetId)) {
+    throw new Error("只能拖动调整同级目录顺序");
+  }
+
+  await request("/api/categories/reorder", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      dragged_id: draggedId,
+      target_id: targetId,
+      position,
+    }),
+  });
+
+  await loadCategories();
+  toast("产品目录顺序已更新");
 }
 
 function renderRecycleBinTree() {
@@ -1953,10 +2091,22 @@ function renderBoomBaseCategoryTree() {
     let html = "";
     for (const node of nodes) {
       const active = state.selectedBoomBaseCategoryId === node.id ? "active" : "";
+      const reorderBefore = state.boomCategoryDropTargetId === node.id && state.boomCategoryDropPosition === "before"
+        ? "drag-target-before"
+        : "";
+      const reorderAfter = state.boomCategoryDropTargetId === node.id && state.boomCategoryDropPosition === "after"
+        ? "drag-target-after"
+        : "";
+      const draggingCategory = state.draggingBoomCategoryId === node.id ? "dragging-category" : "";
       const padding = 10 + depth * 14;
       const label = formatBoomCategoryLabel(node) || node.name || "-";
       html += `<li>
-        <div class="tree-item ${active}" data-boom-category-id="${node.id}" style="padding-left:${padding}px">
+        <div
+          class="tree-item ${active} ${reorderBefore} ${reorderAfter} ${draggingCategory}"
+          data-boom-category-id="${node.id}"
+          style="padding-left:${padding}px"
+          draggable="true"
+        >
           <span class="tree-sign empty">·</span>
           <span>${escapeHtml(label)}</span>
         </div>
@@ -1980,7 +2130,90 @@ function renderBoomBaseCategoryTree() {
       renderBoomBaseCategoryTree();
       setBoomCategoryAction(state.boomCategoryAction);
     });
+
+    item.addEventListener("dragstart", (event) => {
+      const categoryId = Number(item.dataset.boomCategoryId);
+      if (!categoryId) return;
+      state.draggingBoomCategoryId = categoryId;
+      item.classList.add("dragging-category");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(categoryId));
+      }
+    });
+
+    item.addEventListener("dragover", (event) => {
+      const categoryId = Number(item.dataset.boomCategoryId);
+      if (!categoryId || !state.draggingBoomCategoryId) return;
+      if (!canReorderSiblingCategory(state.boomCategories, state.draggingBoomCategoryId, categoryId)) {
+        clearTreeCategoryDropIndicator(
+          container,
+          "boomCategoryDropTargetId",
+          "boomCategoryDropPosition"
+        );
+        return;
+      }
+      event.preventDefault();
+      updateTreeCategoryDropIndicator(
+        container,
+        "boomCategoryDropTargetId",
+        "boomCategoryDropPosition",
+        '[data-boom-category-id',
+        categoryId,
+        getTreeDropPosition(event, item)
+      );
+    });
+
+    item.addEventListener("dragleave", (event) => {
+      const categoryId = Number(item.dataset.boomCategoryId);
+      if (
+        state.boomCategoryDropTargetId === categoryId &&
+        !item.contains(event.relatedTarget)
+      ) {
+        clearTreeCategoryDropIndicator(
+          container,
+          "boomCategoryDropTargetId",
+          "boomCategoryDropPosition"
+        );
+      }
+    });
+
+    item.addEventListener("drop", (event) => {
+      if (!state.draggingBoomCategoryId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const categoryId = Number(item.dataset.boomCategoryId);
+      if (!categoryId) return;
+      const draggedId = Number(state.draggingBoomCategoryId);
+      const position = state.boomCategoryDropPosition || "after";
+      clearBoomCategoryReorderState(container);
+      reorderBoomCategory(draggedId, categoryId, position).catch((err) => toast(err.message));
+    });
+
+    item.addEventListener("dragend", () => {
+      clearBoomCategoryReorderState(container);
+      item.classList.remove("dragging-category");
+    });
   });
+}
+
+async function reorderBoomCategory(draggedId, targetId, position) {
+  if (!canReorderSiblingCategory(state.boomCategories, draggedId, targetId)) {
+    throw new Error("只能拖动调整同级BOOM目录顺序");
+  }
+
+  await request("/api/boom-categories/reorder", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      dragged_id: draggedId,
+      target_id: targetId,
+      position,
+    }),
+  });
+
+  await loadBoomCategories();
+  toast("BOOM目录顺序已更新");
 }
 
 function resetBoomBaseForm() {
