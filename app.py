@@ -20,6 +20,7 @@ DB_PATH = DATA_DIR / "pim.db"
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 NATURAL_TOKEN_PATTERN = re.compile(r"(\d+(?:\.\d+)?)")
+BOOM_CATEGORY_LEADING_ORDER_PATTERN = re.compile(r"^\s*\d+\s*[.．、。]\s*")
 UPLOAD_WEBP_QUALITY = 80
 UPLOAD_WEBP_MAX_EDGE = 1800
 IMAGE_MIGRATION_THREAD_STARTED = False
@@ -188,7 +189,7 @@ def create_app() -> Flask:
     @app.route("/api/boom-categories", methods=["POST"])
     def create_boom_category():
         payload = request.get_json(silent=True) or {}
-        name = (payload.get("name") or "").strip()
+        name = normalize_boom_category_name(payload.get("name"))
         parent_id = payload.get("parent_id")
 
         if not name:
@@ -222,7 +223,7 @@ def create_app() -> Flask:
     @app.route("/api/boom-categories/<int:category_id>", methods=["PUT"])
     def update_boom_category(category_id: int):
         payload = request.get_json(silent=True) or {}
-        name = (payload.get("name") or "").strip()
+        name = normalize_boom_category_name(payload.get("name"))
 
         if not name:
             return jsonify({"error": "目录名称不能为空"}), 400
@@ -283,6 +284,7 @@ def create_app() -> Flask:
             return jsonify({"error": "目录下有子目录，只有空目录才能删除"}), 400
 
         conn.execute("DELETE FROM boom_categories WHERE id = ?", (category_id,))
+        normalize_boom_categories(conn)
         conn.commit()
         return jsonify({"ok": True})
 
@@ -1532,6 +1534,7 @@ def init_db() -> None:
     ensure_boom_base_columns(conn)
     backfill_config_units_from_boom_base(conn)
     seed_boom_categories_from_product_categories(conn)
+    normalize_boom_categories(conn)
     backfill_boom_base_categories(conn)
     backfill_product_boom_categories(conn)
     conn.commit()
@@ -1717,6 +1720,45 @@ def ensure_boom_category_columns(conn: sqlite3.Connection) -> None:
         ON boom_categories(parent_id, sort_order, id)
         """
     )
+
+
+def normalize_boom_category_name(name: str | None) -> str:
+    return BOOM_CATEGORY_LEADING_ORDER_PATTERN.sub("", (name or "").strip()).strip()
+
+
+def normalize_boom_categories(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT id, parent_id, name, sort_order
+        FROM boom_categories
+        ORDER BY COALESCE(parent_id, 0), sort_order, id
+        """
+    ).fetchall()
+    if not rows:
+        return
+
+    next_sort_order_by_parent: dict[Optional[int], int] = {}
+    used_names_by_parent: dict[Optional[int], set[str]] = {}
+
+    for row in rows:
+        parent_id = row["parent_id"]
+        next_sort_order = next_sort_order_by_parent.get(parent_id, 1)
+        next_sort_order_by_parent[parent_id] = next_sort_order + 1
+
+        current_name = (row["name"] or "").strip()
+        normalized_name = normalize_boom_category_name(current_name) or current_name
+
+        used_names = used_names_by_parent.setdefault(parent_id, set())
+        final_name = normalized_name
+        if final_name in used_names:
+            final_name = current_name
+        used_names.add(final_name)
+
+        if final_name != current_name or int(row["sort_order"] or 0) != next_sort_order:
+            conn.execute(
+                "UPDATE boom_categories SET name = ?, sort_order = ? WHERE id = ?",
+                (final_name, next_sort_order, row["id"]),
+            )
 
 
 def ensure_boom_base_columns(conn: sqlite3.Connection) -> None:
@@ -2110,7 +2152,7 @@ def get_or_create_category(conn: sqlite3.Connection, name: str, parent_id: Optio
 def get_or_create_boom_category(
     conn: sqlite3.Connection, name: str, parent_id: Optional[int], sort_order: int
 ) -> int:
-    name = name.strip()
+    name = normalize_boom_category_name(name)
     if not name:
         raise ValueError("目录名称不能为空")
 
