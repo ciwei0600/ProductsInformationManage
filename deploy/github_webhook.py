@@ -54,6 +54,16 @@ def run_deploy() -> tuple[int, str]:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _request_meta(self) -> str:
+        client_ip = self.client_address[0] if self.client_address else "-"
+        event = self.headers.get("X-GitHub-Event", "")
+        delivery = self.headers.get("X-GitHub-Delivery", "")
+        user_agent = self.headers.get("User-Agent", "")
+        return (
+            f"ip={client_ip} path={self.path} event={event or '-'} "
+            f"delivery={delivery or '-'} ua={user_agent or '-'}"
+        )
+
     def _json(self, status: HTTPStatus, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -64,6 +74,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path != HOOK_PATH:
+            append_log(f"忽略请求：未知路径 {self._request_meta()}")
             self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
 
@@ -71,23 +82,27 @@ class Handler(BaseHTTPRequestHandler):
         payload = self.rfile.read(length)
         signature = self.headers.get("X-Hub-Signature-256")
         event = self.headers.get("X-GitHub-Event", "")
+        append_log(f"收到请求 {self._request_meta()} bytes={len(payload)}")
 
         if not verify_signature(payload, signature):
-            append_log("拒绝请求：签名校验失败")
+            append_log(f"拒绝请求：签名校验失败 {self._request_meta()}")
             self._json(HTTPStatus.UNAUTHORIZED, {"error": "invalid signature"})
             return
 
         if event == "ping":
+            append_log(f"收到 ping {self._request_meta()}")
             self._json(HTTPStatus.OK, {"ok": True, "message": "pong"})
             return
 
         if event != "push":
+            append_log(f"忽略请求：非 push 事件 {self._request_meta()}")
             self._json(HTTPStatus.OK, {"ok": True, "message": f"ignored event: {event}"})
             return
 
         try:
             data = json.loads(payload.decode("utf-8"))
         except json.JSONDecodeError:
+            append_log(f"拒绝请求：JSON 无法解析 {self._request_meta()}")
             self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid json"})
             return
 
@@ -95,6 +110,7 @@ class Handler(BaseHTTPRequestHandler):
         ref = str(data.get("ref", ""))
 
         if EXPECT_REPO and repo_name != EXPECT_REPO:
+            append_log(f"忽略请求：仓库不匹配 repo={repo_name} expected={EXPECT_REPO} {self._request_meta()}")
             self._json(
                 HTTPStatus.OK,
                 {"ok": True, "message": f"ignored repo: {repo_name}", "expected": EXPECT_REPO},
@@ -102,12 +118,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if ref != EXPECT_REF:
+            append_log(f"忽略请求：分支不匹配 ref={ref} expected={EXPECT_REF} {self._request_meta()}")
             self._json(HTTPStatus.OK, {"ok": True, "message": f"ignored ref: {ref}"})
             return
 
-        append_log(f"收到部署请求 repo={repo_name} ref={ref}")
+        append_log(f"收到部署请求 repo={repo_name} ref={ref} {self._request_meta()}")
         code, output = run_deploy()
-        append_log(f"部署结束 code={code}\n{output}")
+        append_log(f"部署结束 code={code} repo={repo_name} ref={ref}\n{output}")
 
         if code == 0:
             self._json(HTTPStatus.OK, {"ok": True, "message": "deploy success"})
