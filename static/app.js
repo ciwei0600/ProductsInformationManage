@@ -370,8 +370,9 @@ function setBoomCategoryAction(action) {
 
   document.querySelectorAll("[data-boom-category-action]").forEach((button) => {
     const active = button.dataset.boomCategoryAction === finalAction;
+    const isAddAction = button.dataset.boomCategoryAction === "add";
     button.classList.toggle("active", active);
-    button.disabled = !hasSelectedCategory;
+    button.disabled = isAddAction ? false : !hasSelectedCategory;
   });
 }
 
@@ -391,6 +392,10 @@ function setBoomCategoryAddMode(mode) {
 function updateBoomCategoryAddTargetText() {
   if (state.boomCategoryAction !== "add") return;
   const target = el("boomCategoryActionModalTarget");
+  if (!state.selectedBoomBaseCategoryId) {
+    target.textContent = "当前无已选BOOM目录，将新增顶级目录";
+    return;
+  }
   const current = state.boomCategories.find((item) => item.id === state.selectedBoomBaseCategoryId);
   const currentName = current?.name || `BOOM目录 #${state.selectedBoomBaseCategoryId}`;
   if (state.boomCategoryAddMode === "sibling") {
@@ -401,7 +406,7 @@ function updateBoomCategoryAddTargetText() {
 }
 
 function openBoomCategoryActionModal(action) {
-  if (!state.selectedBoomBaseCategoryId) {
+  if (action !== "add" && !state.selectedBoomBaseCategoryId) {
     toast("请先在目录树选择BOOM目录");
     return;
   }
@@ -437,7 +442,7 @@ function openBoomCategoryActionModal(action) {
     window.setTimeout(() => input.focus(), 0);
   } else {
     title.textContent = "新增BOOM目录";
-    addModeRow.style.display = "";
+    addModeRow.style.display = state.selectedBoomBaseCategoryId ? "" : "none";
     inputRow.style.display = "";
     input.value = "";
     input.placeholder = "请输入新目录名称";
@@ -1979,15 +1984,18 @@ async function applyBoomCategoryAction() {
   const categoryId = state.selectedBoomBaseCategoryId;
   const name = (el("boomCategoryActionInput")?.value || "").trim();
 
-  if (!categoryId) {
+  if (!categoryId && action !== "add") {
     throw new Error("请先在目录树选择BOOM目录");
   }
 
   if (action === "add") {
     if (!name) throw new Error("BOOM目录名称不能为空");
     const current = state.boomCategories.find((item) => item.id === categoryId);
-    const parentId =
-      state.boomCategoryAddMode === "sibling" ? (current?.parent_id ?? null) : categoryId;
+    const parentId = !categoryId
+      ? null
+      : state.boomCategoryAddMode === "sibling"
+        ? (current?.parent_id ?? null)
+        : categoryId;
     const created = await request("/api/boom-categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
