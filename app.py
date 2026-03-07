@@ -850,10 +850,9 @@ def create_app() -> Flask:
                 cbi.boom_category_id,
                 bc.name AS boom_category_name,
                 cbi.item_name,
-                cbi.item_spec,
                 cbi.unit,
                 cbi.default_unit_cost,
-                cbi.remark,
+                cbi.remark AS description,
                 cbi.sort_order,
                 cbi.created_at,
                 cbi.updated_at
@@ -882,9 +881,8 @@ def create_app() -> Flask:
             return jsonify({"error": "BOOM目录不存在"}), 400
 
         item_name = (payload.get("item_name") or "").strip()
-        item_spec = (payload.get("item_spec") or "").strip()
         unit = (payload.get("unit") or "").strip()
-        remark = (payload.get("remark") or "").strip()
+        description = (payload.get("description") or payload.get("remark") or "").strip()
         if not item_name:
             return jsonify({"error": "项目名称不能为空"}), 400
 
@@ -899,12 +897,12 @@ def create_app() -> Flask:
             """
             SELECT id
             FROM category_boom_base_items
-            WHERE boom_category_id = ? AND item_name = ? AND item_spec = ? AND unit = ?
+            WHERE boom_category_id = ? AND item_name = ? AND unit = ?
             """,
-            (boom_category_id, item_name, item_spec, unit),
+            (boom_category_id, item_name, unit),
         ).fetchone()
         if duplicate is not None:
-            return jsonify({"error": "当前BOOM目录已存在同名同规格基础项"}), 400
+            return jsonify({"error": "当前BOOM目录已存在同名基础项"}), 400
 
         sort_order = conn.execute(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM category_boom_base_items WHERE boom_category_id = ?",
@@ -921,10 +919,10 @@ def create_app() -> Flask:
             (
                 boom_category_id,
                 item_name,
-                item_spec,
+                "",
                 unit,
                 default_unit_cost,
-                remark,
+                description,
                 int(sort_order),
                 now,
                 now,
@@ -945,9 +943,8 @@ def create_app() -> Flask:
 
         payload = request.get_json(silent=True) or {}
         item_name = (payload.get("item_name") or "").strip()
-        item_spec = (payload.get("item_spec") or "").strip()
         unit = (payload.get("unit") or "").strip()
-        remark = (payload.get("remark") or "").strip()
+        description = (payload.get("description") or payload.get("remark") or "").strip()
         if not item_name:
             return jsonify({"error": "项目名称不能为空"}), 400
 
@@ -963,12 +960,12 @@ def create_app() -> Flask:
             """
             SELECT id
             FROM category_boom_base_items
-            WHERE id != ? AND boom_category_id = ? AND item_name = ? AND item_spec = ? AND unit = ?
+            WHERE id != ? AND boom_category_id = ? AND item_name = ? AND unit = ?
             """,
-            (base_item_id, boom_category_id, item_name, item_spec, unit),
+            (base_item_id, boom_category_id, item_name, unit),
         ).fetchone()
         if duplicate is not None:
-            return jsonify({"error": "当前BOOM目录已存在同名同规格基础项"}), 400
+            return jsonify({"error": "当前BOOM目录已存在同名基础项"}), 400
 
         now = utc_now()
         conn.execute(
@@ -977,7 +974,7 @@ def create_app() -> Flask:
             SET item_name = ?, item_spec = ?, unit = ?, default_unit_cost = ?, remark = ?, updated_at = ?
             WHERE id = ?
             """,
-            (item_name, item_spec, unit, default_unit_cost, remark, now, base_item_id),
+            (item_name, "", unit, default_unit_cost, description, now, base_item_id),
         )
         conn.commit()
         return jsonify({"ok": True})

@@ -279,10 +279,6 @@
                 <input id="boomBaseItemName" type="text" placeholder="如 主体、密封圈、喷芯" />
               </div>
               <div class="row">
-                <label for="boomBaseItemSpec">规格</label>
-                <input id="boomBaseItemSpec" type="text" placeholder="可选" />
-              </div>
-              <div class="row">
                 <label for="boomBaseUnit">单位</label>
                 <input id="boomBaseUnit" type="text" placeholder="可选，如 个、米、克" />
               </div>
@@ -291,8 +287,8 @@
                 <input id="boomBaseDefaultUnitCost" type="number" min="0" step="0.0001" placeholder="原料价格，可选，默认0" />
               </div>
               <div class="row">
-                <label for="boomBaseRemark">备注</label>
-                <input id="boomBaseRemark" type="text" placeholder="可选" />
+                <label for="boomBaseDescription">描述</label>
+                <input id="boomBaseDescription" type="text" placeholder="可选" />
               </div>
               <div class="button-row">
                 <button id="saveBoomBaseItemBtn" type="button">新增项目</button>
@@ -309,15 +305,14 @@
                 <tr>
                   <th>BOOM目录</th>
                   <th>项目名称</th>
-                  <th>规格</th>
                   <th>单位</th>
                   <th>原料价格</th>
-                  <th>备注</th>
+                  <th>描述</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody id="boomBaseItemsBody">
-                <tr><td colspan="7" class="hint">请选择BOOM目录后维护BOOM基础信息</td></tr>
+                <tr><td colspan="6" class="hint">请选择BOOM目录后维护BOOM基础信息</td></tr>
               </tbody>
             </table>
           </div>

@@ -869,11 +869,9 @@ function renderProductBoomBaseSelect(
 
   let html = `<option value="">${placeholder}</option>`;
   for (const item of items) {
-    const title = item.item_spec
-      ? `${item.item_name} | ${item.item_spec}`
-      : item.item_name;
     const cost = Number(item.default_unit_cost || 0);
-    html += `<option value="${item.id}">${escapeHtml(title)} | 默认单价 ${toMoney(cost)}</option>`;
+    const unit = item.unit ? ` | ${item.unit}` : "";
+    html += `<option value="${item.id}">${escapeHtml(item.item_name || "")}${escapeHtml(unit)} | 默认单价 ${toMoney(cost)}</option>`;
   }
   select.innerHTML = html;
 
@@ -903,7 +901,6 @@ function applySelectedProductBoomBaseItem() {
   if (!selected) return;
 
   el("bomItemName").value = selected.item_name || "";
-  el("bomItemSpec").value = selected.item_spec || "";
   el("bomItemUnit").value = selected.unit || "";
   el("bomItemUnitCost").value = formatDecimal(Number(selected.default_unit_cost || 0), 6);
 }
@@ -1303,10 +1300,9 @@ function resetBoomBaseForm() {
   state.editingBoomBaseItemId = null;
   el("boomBaseItemId").value = "";
   el("boomBaseItemName").value = "";
-  el("boomBaseItemSpec").value = "";
   el("boomBaseUnit").value = "";
   el("boomBaseDefaultUnitCost").value = "";
-  el("boomBaseRemark").value = "";
+  el("boomBaseDescription").value = "";
   el("saveBoomBaseItemBtn").textContent = "新增项目";
   el("cancelBoomBaseEditBtn").style.display = "none";
   updateBoomBaseSaveButtonState();
@@ -1316,7 +1312,7 @@ function renderBoomBaseItems(items) {
   const body = el("boomBaseItemsBody");
   state.boomBaseItems = [...items];
   if (!items.length) {
-    body.innerHTML = '<tr><td colspan="7" class="hint">当前BOOM目录暂无基础信息</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="hint">当前BOOM目录暂无基础信息</td></tr>';
     return;
   }
 
@@ -1327,10 +1323,9 @@ function renderBoomBaseItems(items) {
       <tr>
         <td>${escapeHtml(categoryName)}</td>
         <td>${escapeHtml(item.item_name || "-")}</td>
-        <td>${escapeHtml(item.item_spec || "-")}</td>
         <td>${escapeHtml(item.unit || "-")}</td>
         <td>¥${toMoney(Number(item.default_unit_cost || 0))}</td>
-        <td>${escapeHtml(item.remark || "-")}</td>
+        <td>${escapeHtml(item.description || "-")}</td>
         <td>
           <div class="button-row">
             <button type="button" data-boom-action="edit" data-id="${item.id}">修改</button>
@@ -1353,10 +1348,9 @@ function renderBoomBaseItems(items) {
       state.editingBoomBaseItemId = baseItemId;
       el("boomBaseItemId").value = String(target.id);
       el("boomBaseItemName").value = target.item_name || "";
-      el("boomBaseItemSpec").value = target.item_spec || "";
       el("boomBaseUnit").value = target.unit || "";
       el("boomBaseDefaultUnitCost").value = formatDecimal(Number(target.default_unit_cost || 0), 6);
-      el("boomBaseRemark").value = target.remark || "";
+      el("boomBaseDescription").value = target.description || "";
       el("saveBoomBaseItemBtn").textContent = "保存修改";
       el("cancelBoomBaseEditBtn").style.display = "";
     });
@@ -1375,7 +1369,7 @@ async function loadBoomBaseItems() {
   if (!boomCategoryId) {
     state.boomBaseItems = [];
     el("boomBaseItemsBody").innerHTML =
-      '<tr><td colspan="7" class="hint">请选择BOOM目录后维护BOOM基础信息</td></tr>';
+      '<tr><td colspan="6" class="hint">请选择BOOM目录后维护BOOM基础信息</td></tr>';
     updateBoomBaseSaveButtonState();
     return;
   }
@@ -1398,10 +1392,9 @@ async function saveBoomBaseItem() {
   const payload = {
     boom_category_id: boomCategoryId,
     item_name: itemName,
-    item_spec: el("boomBaseItemSpec").value.trim(),
     unit: el("boomBaseUnit").value.trim(),
     default_unit_cost: el("boomBaseDefaultUnitCost").value.trim() || "0",
-    remark: el("boomBaseRemark").value.trim(),
+    description: el("boomBaseDescription").value.trim(),
   };
 
   if (state.editingBoomBaseItemId) {
