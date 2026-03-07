@@ -58,6 +58,18 @@ body {
   align-items: start;
 }
 
+.app-footer {
+  padding: 0 var(--space-md) var(--space-md);
+}
+
+.app-footer-meta {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .card {
   background: var(--card);
   border: 1px solid var(--line);
@@ -856,6 +868,11 @@ td {
 
   .nav-sidebar {
     position: static;
+  }
+
+  .app-footer-meta {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }
 
