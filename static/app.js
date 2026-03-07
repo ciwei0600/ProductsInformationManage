@@ -6,6 +6,7 @@ const state = {
   total: 0,
   selectedTreeCategoryId: null,
   selectedTreeProductId: null,
+  selectedBoomBaseCategoryId: null,
   selectedProductMainImagePath: null,
   expandedCategoryIds: new Set(),
   categoryAction: "add",
@@ -101,6 +102,12 @@ function updateDeleteProductButtonState() {
   const button = el("deleteProductBtn");
   if (!button) return;
   button.disabled = !el("productId").value;
+}
+
+function updateBoomBaseSaveButtonState() {
+  const saveBtn = el("saveBoomBaseItemBtn");
+  if (!saveBtn) return;
+  saveBtn.disabled = !state.selectedBoomBaseCategoryId;
 }
 
 function productDisplayName(product) {
@@ -222,28 +229,6 @@ function fillCategorySelect(selectId, includeAll = false) {
   select.innerHTML = html;
   if ([...select.options].some((option) => option.value === currentValue)) {
     select.value = currentValue;
-  }
-}
-
-function fillCategorySelectRequired(selectId, placeholder = "请选择目录") {
-  const select = el(selectId);
-  if (!select) return;
-
-  const pathMap = categoryPathMap();
-  const currentValue = select.value;
-  let html = `<option value="">${placeholder}</option>`;
-  for (const category of state.categories) {
-    const path = pathMap.get(category.id) || category.name;
-    html += `<option value="${category.id}">${path}</option>`;
-  }
-  select.innerHTML = html;
-
-  if ([...select.options].some((option) => option.value === currentValue)) {
-    select.value = currentValue;
-    return;
-  }
-  if (state.categories.length > 0) {
-    select.value = String(state.categories[0].id);
   }
 }
 
@@ -889,7 +874,6 @@ async function loadCategories() {
   fillCategorySelect("filterCategory", true);
   fillCategorySelect("productCategory");
   fillCategorySelect("materialPackageCategory", true);
-  fillCategorySelectRequired("boomBaseCategory", "请选择目录");
 
   if (
     state.selectedTreeCategoryId &&
@@ -897,10 +881,17 @@ async function loadCategories() {
   ) {
     state.selectedTreeCategoryId = null;
   }
+  if (
+    state.selectedBoomBaseCategoryId &&
+    !state.categories.some((category) => category.id === state.selectedBoomBaseCategoryId)
+  ) {
+    state.selectedBoomBaseCategoryId = null;
+  }
 
   setCategoryAction(state.categoryAction);
 
   renderCategoryTree();
+  renderBoomBaseCategoryTree();
   await loadBoomBaseItems();
 }
 
@@ -975,6 +966,50 @@ function renderMaterialPackageTable(items) {
   setText("materialPackageSummary", `共 ${items.length} 个产品`);
 }
 
+function renderBoomBaseCategoryTree() {
+  const container = el("boomBaseCategoryTree");
+  if (!container) return;
+
+  const pathMap = categoryPathMap();
+  setText(
+    "boomBaseCategoryHint",
+    state.selectedBoomBaseCategoryId
+      ? `当前目录：${pathMap.get(state.selectedBoomBaseCategoryId) || "未知目录"}`
+      : "请先在目录树中选择一个目录"
+  );
+
+  function renderNodes(nodes, depth = 0) {
+    let html = "";
+    for (const node of nodes) {
+      const active = state.selectedBoomBaseCategoryId === node.id ? "active" : "";
+      const padding = 10 + depth * 14;
+      html += `<li>
+        <div class="tree-item ${active}" data-boom-category-id="${node.id}" style="padding-left:${padding}px">
+          <span class="tree-sign empty">·</span>
+          <span>${node.name}</span>
+        </div>
+      `;
+      if (node.children && node.children.length > 0) {
+        html += `<ul class="tree">${renderNodes(node.children, depth + 1)}</ul>`;
+      }
+      html += "</li>";
+    }
+    return html;
+  }
+
+  container.innerHTML = renderNodes(state.categoryTree);
+  container.querySelectorAll("[data-boom-category-id]").forEach((item) => {
+    item.addEventListener("click", () => {
+      const id = Number(item.dataset.boomCategoryId);
+      if (!id) return;
+      state.selectedBoomBaseCategoryId = id;
+      resetBoomBaseForm();
+      loadBoomBaseItems().catch((err) => toast(err.message));
+      renderBoomBaseCategoryTree();
+    });
+  });
+}
+
 function resetBoomBaseForm() {
   state.editingBoomBaseItemId = null;
   el("boomBaseItemId").value = "";
@@ -985,6 +1020,7 @@ function resetBoomBaseForm() {
   el("boomBaseRemark").value = "";
   el("saveBoomBaseItemBtn").textContent = "新增项目";
   el("cancelBoomBaseEditBtn").style.display = "none";
+  updateBoomBaseSaveButtonState();
 }
 
 function renderBoomBaseItems(items) {
@@ -1046,19 +1082,21 @@ function renderBoomBaseItems(items) {
 }
 
 async function loadBoomBaseItems() {
-  const categoryId = Number(el("boomBaseCategory").value);
+  const categoryId = Number(state.selectedBoomBaseCategoryId);
   if (!categoryId) {
     state.boomBaseItems = [];
     el("boomBaseItemsBody").innerHTML =
       '<tr><td colspan="7" class="hint">请选择目录后维护BOOM基础信息</td></tr>';
+    updateBoomBaseSaveButtonState();
     return;
   }
   const data = await request(`/api/category-boom-base-items?category_id=${categoryId}`);
   renderBoomBaseItems(data.items || []);
+  updateBoomBaseSaveButtonState();
 }
 
 async function saveBoomBaseItem() {
-  const categoryId = Number(el("boomBaseCategory").value);
+  const categoryId = Number(state.selectedBoomBaseCategoryId);
   if (!categoryId) {
     throw new Error("请选择目录");
   }
@@ -1676,10 +1714,6 @@ function bindEvents() {
   el("materialPackageSearchBtn").addEventListener("click", () =>
     refreshMaterialPackagingByFilter().catch((err) => toast(err.message))
   );
-  el("boomBaseCategory").addEventListener("change", () => {
-    resetBoomBaseForm();
-    loadBoomBaseItems().catch((err) => toast(err.message));
-  });
   el("saveBoomBaseItemBtn").addEventListener("click", () =>
     saveBoomBaseItem().catch((err) => toast(err.message))
   );

@@ -553,6 +553,25 @@ button.ghost {
   padding: 10px;
 }
 
+.boom-base-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.boom-base-tree-zone {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fcfdff;
+  padding: 10px;
+}
+
+.boom-base-tree-zone h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
 .result-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -757,6 +776,10 @@ td {
   }
 
   .category-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .boom-base-layout {
     grid-template-columns: 1fr;
   }
 
