@@ -11,6 +11,7 @@ const state = {
   selectedTreeProductId: null,
   draggingTreeProductId: null,
   treeDropCategoryId: null,
+  movingTreeProductId: null,
   selectedBoomBaseCategoryId: null,
   selectedProductMainImagePath: null,
   expandedCategoryIds: new Set(),
@@ -486,6 +487,40 @@ async function confirmBoomCategoryActionFromModal() {
   closeBoomCategoryActionModal();
 }
 
+function openProductCategoryMoveModal(productId) {
+  const product = state.materialProducts.find((item) => item.id === productId);
+  if (!product) {
+    throw new Error("未找到要修改目录的产品");
+  }
+  if (!state.categories.length) {
+    throw new Error("当前没有可选目录");
+  }
+
+  state.movingTreeProductId = productId;
+  fillCategorySelect("productCategoryMoveSelect");
+  el("productCategoryMoveSelect").value = product.category_id == null ? "" : String(product.category_id);
+  el("productCategoryMoveHint").textContent = `当前产品：${product.code || "-"} | ${product.chinese_name || product.name || "-"}`;
+  el("productCategoryMoveModal").classList.add("show");
+}
+
+function closeProductCategoryMoveModal() {
+  state.movingTreeProductId = null;
+  el("productCategoryMoveModal").classList.remove("show");
+}
+
+async function confirmProductCategoryMove() {
+  const productId = Number(state.movingTreeProductId);
+  if (!productId) {
+    throw new Error("请选择要修改目录的商品");
+  }
+  const categoryId = Number(el("productCategoryMoveSelect").value);
+  if (!categoryId) {
+    throw new Error("请选择目标目录");
+  }
+  await moveTreeProductToCategory(productId, categoryId);
+  closeProductCategoryMoveModal();
+}
+
 function renderCategoryTree() {
   const container = el("categoryTree");
   const parentMap = new Map();
@@ -551,7 +586,10 @@ function renderCategoryTree() {
                 <div class="tree-product-info">
                   <div class="tree-product-head">
                     <div class="tree-product-title">${product.code || "-"} | ${name}</div>
-                    <button type="button" class="tree-product-edit-btn" data-tree-edit-id="${product.id}">修改</button>
+                    <div class="button-row">
+                      <button type="button" class="tree-product-edit-btn" data-tree-edit-id="${product.id}">修改</button>
+                      <button type="button" class="tree-product-edit-btn" data-tree-change-category-id="${product.id}">修改目录</button>
+                    </div>
                   </div>
                   <div class="tree-product-grid">
                     <div>作用：${product.effect || "-"}</div>
@@ -659,6 +697,19 @@ function renderCategoryTree() {
       const productId = Number(button.dataset.treeEditId);
       if (!productId) return;
       loadProductDetail(productId).catch((err) => toast(err.message));
+    });
+  });
+
+  container.querySelectorAll("button[data-tree-change-category-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const productId = Number(button.dataset.treeChangeCategoryId);
+      if (!productId) return;
+      try {
+        openProductCategoryMoveModal(productId);
+      } catch (err) {
+        toast(err.message);
+      }
     });
   });
 }
@@ -2343,6 +2394,15 @@ function bindEvents() {
   el("boomCategoryActionModal").addEventListener("click", (event) => {
     if (event.target === el("boomCategoryActionModal")) {
       closeBoomCategoryActionModal();
+    }
+  });
+  el("productCategoryMoveConfirmBtn").addEventListener("click", () =>
+    confirmProductCategoryMove().catch((err) => toast(err.message))
+  );
+  el("productCategoryMoveCancelBtn").addEventListener("click", closeProductCategoryMoveModal);
+  el("productCategoryMoveModal").addEventListener("click", (event) => {
+    if (event.target === el("productCategoryMoveModal")) {
+      closeProductCategoryMoveModal();
     }
   });
   el("boomCategoryActionInput").addEventListener("keydown", (event) => {

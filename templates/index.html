@@ -517,6 +517,21 @@
       </div>
     </div>
 
+    <div id="productCategoryMoveModal" class="category-action-modal">
+      <div class="category-action-dialog">
+        <h3>修改商品目录</h3>
+        <div id="productCategoryMoveHint" class="hint"></div>
+        <div class="row mt12">
+          <label for="productCategoryMoveSelect">目标目录</label>
+          <select id="productCategoryMoveSelect"></select>
+        </div>
+        <div class="button-row mt12">
+          <button id="productCategoryMoveConfirmBtn" type="button">确认</button>
+          <button id="productCategoryMoveCancelBtn" class="ghost" type="button">取消</button>
+        </div>
+      </div>
+    </div>
+
     <script src="{{ url_for('static', filename='app.js') }}"></script>
   </body>
 </html>
