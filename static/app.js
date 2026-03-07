@@ -18,6 +18,7 @@ const state = {
   materialProducts: [],
   recycleBinProducts: [],
   recycleExpandedCategoryIds: new Set(),
+  packagingExpandedCategoryIds: new Set(),
   boomBaseItems: [],
   quoteLines: [],
   currentProductBomItems: [],
@@ -1111,7 +1112,7 @@ function resetMaterialPanels() {
   setText("costUnitExTax", "-");
   setText("costUnitInclTax", "-");
 
-  renderMaterialPackageTable([]);
+  renderPackagingMachineTree();
   renderQuoteLines();
 }
 
@@ -1127,7 +1128,6 @@ async function loadCategories() {
 
   fillCategorySelect("filterCategory", true);
   fillCategorySelect("productCategory");
-  fillCategorySelect("materialPackageCategory", true);
 
   if (
     state.selectedTreeCategoryId &&
@@ -1210,32 +1210,130 @@ async function fetchAllProducts(options = {}) {
   return items;
 }
 
-function renderMaterialPackageTable(items) {
-  const body = el("materialPackageBody");
-  if (!items.length) {
-    body.innerHTML = '<tr><td colspan="7" class="hint">暂无数据</td></tr>';
-    setText("materialPackageSummary", "共 0 个产品");
+function renderPackagingMachineTree() {
+  const container = el("packagingMachineTree");
+  if (!container) return;
+
+  const parentMap = new Map();
+  for (const category of state.categories) {
+    parentMap.set(category.id, category.parent_id ?? null);
+  }
+
+  const subtreeProducts = new Map();
+  for (const product of state.materialProducts) {
+    let categoryId = product.category_id == null ? null : Number(product.category_id);
+    const visited = new Set();
+    while (categoryId && !visited.has(categoryId)) {
+      visited.add(categoryId);
+      if (!subtreeProducts.has(categoryId)) {
+        subtreeProducts.set(categoryId, []);
+      }
+      subtreeProducts.get(categoryId).push(product);
+      categoryId = parentMap.get(categoryId) ?? null;
+    }
+  }
+
+  function renderProductNode(product) {
+    const name = product.chinese_name || product.name || "-";
+    return `
+      <li class="tree-product-item packaging-machine-card" data-packaging-product-id="${product.id}">
+        <div class="packaging-machine-head">
+          <div class="tree-product-title">${product.code || "-"} | ${name}</div>
+          <button type="button" class="tree-product-edit-btn" data-packaging-save-id="${product.id}">保存</button>
+        </div>
+        <div class="packaging-machine-grid">
+          <label class="packaging-machine-field">
+            <span>包装名字</span>
+            <input type="text" data-packaging-field="packaging_machine_name" value="${escapeHtml(product.packaging_machine_name || "")}" />
+          </label>
+          <label class="packaging-machine-field">
+            <span>数量</span>
+            <input type="text" data-packaging-field="packaging_machine_quantity" value="${escapeHtml(product.packaging_machine_quantity || "")}" />
+          </label>
+          <label class="packaging-machine-field">
+            <span>包数</span>
+            <input type="text" data-packaging-field="packaging_machine_pack_count" value="${escapeHtml(product.packaging_machine_pack_count || "")}" />
+          </label>
+          <label class="packaging-machine-field">
+            <span>箱子大小</span>
+            <input type="text" data-packaging-field="packaging_machine_box_size" value="${escapeHtml(product.packaging_machine_box_size || "")}" />
+          </label>
+          <label class="packaging-machine-field">
+            <span>袋子长度</span>
+            <input type="text" data-packaging-field="packaging_machine_bag_length" value="${escapeHtml(product.packaging_machine_bag_length || "")}" />
+          </label>
+          <label class="packaging-machine-field">
+            <span>振幅</span>
+            <input type="text" data-packaging-field="packaging_machine_amplitude" value="${escapeHtml(product.packaging_machine_amplitude || "")}" />
+          </label>
+          <label class="packaging-machine-field">
+            <span>程序</span>
+            <input type="text" data-packaging-field="packaging_machine_program" value="${escapeHtml(product.packaging_machine_program || "")}" />
+          </label>
+        </div>
+      </li>
+    `;
+  }
+
+  function renderNodes(nodes, depth = 0) {
+    let html = "";
+    for (const node of nodes) {
+      const products = subtreeProducts.get(node.id) || [];
+      const hasContent = products.length > 0;
+      const expanded = state.packagingExpandedCategoryIds.has(node.id);
+      const sign = hasContent ? (expanded ? "-" : "+") : "·";
+      const signClass = hasContent ? "tree-sign" : "tree-sign empty";
+      const padding = 10 + depth * 14;
+      html += `<li>
+        <div
+          class="tree-item"
+          data-packaging-category-id="${node.id}"
+          data-expandable="${hasContent ? "1" : "0"}"
+          style="padding-left:${padding}px"
+        >
+          <span class="${signClass}">${sign}</span>
+          <span>${node.name}</span>
+        </div>
+      `;
+      if (node.children && node.children.length > 0) {
+        html += `<ul class="tree">${renderNodes(node.children, depth + 1)}</ul>`;
+      }
+      if (expanded && products.length > 0) {
+        html += `<ul class="tree-products">${products.map(renderProductNode).join("")}</ul>`;
+      }
+      html += "</li>";
+    }
+    return html;
+  }
+
+  container.innerHTML = renderNodes(state.categoryTree);
+  if (!container.innerHTML.trim()) {
+    container.innerHTML = '<li class="hint">暂无目录数据</li>';
     return;
   }
 
-  body.innerHTML = items
-    .map((item) => {
-      const name = item.chinese_name || item.name || "-";
-      return `
-      <tr>
-        <td>${item.code || "-"}</td>
-        <td>${name}</td>
-        <td>${item.package_quantity || "-"}</td>
-        <td>${item.package_size || "-"}</td>
-        <td>${item.unit_weight || "-"}</td>
-        <td>${item.gross_weight || "-"}</td>
-        <td>${item.category_name || "-"}</td>
-      </tr>
-      `;
-    })
-    .join("");
+  container.querySelectorAll("[data-packaging-category-id]").forEach((item) => {
+    item.addEventListener("click", () => {
+      if (item.dataset.expandable !== "1") return;
+      const categoryId = Number(item.dataset.packagingCategoryId);
+      if (!categoryId) return;
+      if (state.packagingExpandedCategoryIds.has(categoryId)) {
+        state.packagingExpandedCategoryIds.delete(categoryId);
+      } else {
+        state.packagingExpandedCategoryIds.add(categoryId);
+      }
+      renderPackagingMachineTree();
+    });
+  });
 
-  setText("materialPackageSummary", `共 ${items.length} 个产品`);
+  container.querySelectorAll("button[data-packaging-save-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const productId = Number(button.dataset.packagingSaveId);
+      if (!productId) return;
+      savePackagingMachineData(productId).catch((err) => toast(err.message));
+    });
+  });
 }
 
 function renderBoomBaseCategoryTree() {
@@ -1458,17 +1556,24 @@ function refreshMaterialSelectors() {
   syncMaterialCostUnitFromSelectedProduct();
 }
 
-async function refreshMaterialPackagingByFilter() {
-  const keyword = el("materialPackageKeyword").value.trim();
-  const categoryId = el("materialPackageCategory").value;
-
-  if (!keyword && !categoryId) {
-    renderMaterialPackageTable(state.materialProducts);
-    return;
+async function savePackagingMachineData(productId) {
+  const card = document.querySelector(`[data-packaging-product-id="${productId}"]`);
+  if (!card) {
+    throw new Error("未找到要保存的产品");
   }
 
-  const items = await fetchAllProducts({ keyword, categoryId });
-  renderMaterialPackageTable(items);
+  const payload = {};
+  card.querySelectorAll("[data-packaging-field]").forEach((field) => {
+    payload[field.dataset.packagingField] = field.value.trim();
+  });
+
+  await request(`/api/products/${productId}/packaging-machine`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  toast("包装机数据已保存");
+  await loadMaterialProducts();
 }
 
 async function loadMaterialProducts() {
@@ -1481,8 +1586,8 @@ async function loadMaterialProducts() {
   }
   updateEditSelectedProductButtonState();
   refreshMaterialSelectors();
-  await refreshMaterialPackagingByFilter();
   renderCategoryTree();
+  renderPackagingMachineTree();
 }
 
 async function loadRecycleBinProducts() {
@@ -1968,21 +2073,10 @@ function bindEvents() {
     }
   });
 
-  el("materialPackageSearchBtn").addEventListener("click", () =>
-    refreshMaterialPackagingByFilter().catch((err) => toast(err.message))
-  );
   el("saveBoomBaseItemBtn").addEventListener("click", () =>
     saveBoomBaseItem().catch((err) => toast(err.message))
   );
   el("cancelBoomBaseEditBtn").addEventListener("click", () => resetBoomBaseForm());
-  el("materialPackageKeyword").addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      refreshMaterialPackagingByFilter().catch((err) => toast(err.message));
-    }
-  });
-  el("materialPackageCategory").addEventListener("change", () =>
-    refreshMaterialPackagingByFilter().catch((err) => toast(err.message))
-  );
   el("materialCostProduct").addEventListener("change", () => {
     syncMaterialCostUnitFromSelectedProduct();
   });

@@ -308,6 +308,13 @@ def create_app() -> Flask:
                 p.package_quantity,
                 p.package_size,
                 p.gross_weight,
+                p.packaging_machine_name,
+                p.packaging_machine_quantity,
+                p.packaging_machine_pack_count,
+                p.packaging_machine_box_size,
+                p.packaging_machine_bag_length,
+                p.packaging_machine_amplitude,
+                p.packaging_machine_program,
                 p.category_id,
                 p.created_at,
                 p.updated_at,
@@ -361,6 +368,13 @@ def create_app() -> Flask:
                 p.package_quantity,
                 p.package_size,
                 p.gross_weight,
+                p.packaging_machine_name,
+                p.packaging_machine_quantity,
+                p.packaging_machine_pack_count,
+                p.packaging_machine_box_size,
+                p.packaging_machine_bag_length,
+                p.packaging_machine_amplitude,
+                p.packaging_machine_program,
                 p.category_id,
                 p.boom_category_id,
                 p.created_at,
@@ -490,6 +504,54 @@ def create_app() -> Flask:
         conn.execute(
             "UPDATE products SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?",
             (utc_now(), utc_now(), product_id),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/products/<int:product_id>/packaging-machine", methods=["PUT"])
+    def update_product_packaging_machine(product_id: int):
+        conn = get_db()
+        product = conn.execute(
+            "SELECT id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            (product_id,),
+        ).fetchone()
+        if product is None:
+            return jsonify({"error": "产品不存在"}), 404
+
+        payload = request.get_json(silent=True) or {}
+        machine_name = (payload.get("packaging_machine_name") or "").strip()
+        machine_quantity = (payload.get("packaging_machine_quantity") or "").strip()
+        pack_count = (payload.get("packaging_machine_pack_count") or "").strip()
+        box_size = (payload.get("packaging_machine_box_size") or "").strip()
+        bag_length = (payload.get("packaging_machine_bag_length") or "").strip()
+        amplitude = (payload.get("packaging_machine_amplitude") or "").strip()
+        program = (payload.get("packaging_machine_program") or "").strip()
+
+        conn.execute(
+            """
+            UPDATE products
+            SET
+                packaging_machine_name = ?,
+                packaging_machine_quantity = ?,
+                packaging_machine_pack_count = ?,
+                packaging_machine_box_size = ?,
+                packaging_machine_bag_length = ?,
+                packaging_machine_amplitude = ?,
+                packaging_machine_program = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                machine_name,
+                machine_quantity,
+                pack_count,
+                box_size,
+                bag_length,
+                amplitude,
+                program,
+                utc_now(),
+                product_id,
+            ),
         )
         conn.commit()
         return jsonify({"ok": True})
@@ -1089,6 +1151,13 @@ def init_db() -> None:
             package_quantity TEXT NOT NULL DEFAULT '',
             package_size TEXT NOT NULL DEFAULT '',
             gross_weight TEXT NOT NULL DEFAULT '',
+            packaging_machine_name TEXT NOT NULL DEFAULT '',
+            packaging_machine_quantity TEXT NOT NULL DEFAULT '',
+            packaging_machine_pack_count TEXT NOT NULL DEFAULT '',
+            packaging_machine_box_size TEXT NOT NULL DEFAULT '',
+            packaging_machine_bag_length TEXT NOT NULL DEFAULT '',
+            packaging_machine_amplitude TEXT NOT NULL DEFAULT '',
+            packaging_machine_program TEXT NOT NULL DEFAULT '',
             is_deleted INTEGER NOT NULL DEFAULT 0,
             deleted_at TEXT,
             created_at TEXT NOT NULL,
@@ -1163,6 +1232,13 @@ def ensure_product_columns(conn: sqlite3.Connection) -> None:
         "package_quantity": "TEXT NOT NULL DEFAULT ''",
         "package_size": "TEXT NOT NULL DEFAULT ''",
         "gross_weight": "TEXT NOT NULL DEFAULT ''",
+        "packaging_machine_name": "TEXT NOT NULL DEFAULT ''",
+        "packaging_machine_quantity": "TEXT NOT NULL DEFAULT ''",
+        "packaging_machine_pack_count": "TEXT NOT NULL DEFAULT ''",
+        "packaging_machine_box_size": "TEXT NOT NULL DEFAULT ''",
+        "packaging_machine_bag_length": "TEXT NOT NULL DEFAULT ''",
+        "packaging_machine_amplitude": "TEXT NOT NULL DEFAULT ''",
+        "packaging_machine_program": "TEXT NOT NULL DEFAULT ''",
         "boom_category_id": "INTEGER REFERENCES boom_categories(id) ON DELETE SET NULL",
         "is_deleted": "INTEGER NOT NULL DEFAULT 0",
         "deleted_at": "TEXT",

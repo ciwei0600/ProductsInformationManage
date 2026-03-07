@@ -535,6 +535,34 @@ button.ghost {
   word-break: break-all;
 }
 
+.packaging-machine-card {
+  cursor: default;
+}
+
+.packaging-machine-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.packaging-machine-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.packaging-machine-field {
+  display: grid;
+  gap: 6px;
+}
+
+.packaging-machine-field span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .tree-item:hover,
 .tree-item.active {
   background: #d9f3f0;

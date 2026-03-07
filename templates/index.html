@@ -33,7 +33,7 @@
           <div class="nav-level1">生产资料</div>
           <a class="nav-level2" href="#page-material-params" data-page="page-material-params">流量计算</a>
           <a class="nav-level2" href="#page-material-boom-base" data-page="page-material-boom-base">BOOM基础信息</a>
-          <a class="nav-level2" href="#page-material-packaging" data-page="page-material-packaging">包装数据</a>
+          <a class="nav-level2" href="#page-material-packaging" data-page="page-material-packaging">包装机数据</a>
           <a class="nav-level2" href="#page-material-cost" data-page="page-material-cost">成本计算</a>
           <a class="nav-level2" href="#page-material-quote" data-page="page-material-quote">报价单</a>
         </div>
@@ -315,28 +315,11 @@
         </section>
 
         <section class="card content-page" id="page-material-packaging">
-          <h2>包装数据</h2>
-          <div class="filter-grid material-filter-grid">
-            <input id="materialPackageKeyword" type="text" placeholder="按产品编号/中文名搜索" />
-            <select id="materialPackageCategory"></select>
-            <button id="materialPackageSearchBtn">查询</button>
-          </div>
-          <div id="materialPackageSummary" class="hint mt12">共 0 个产品</div>
-          <div class="table-wrap mt12">
-            <table>
-              <thead>
-                <tr>
-                  <th>产品编号</th>
-                  <th>中文名</th>
-                  <th>包装数量</th>
-                  <th>包装尺寸</th>
-                  <th>单个重量</th>
-                  <th>总重量</th>
-                  <th>目录</th>
-                </tr>
-              </thead>
-              <tbody id="materialPackageBody"></tbody>
-            </table>
+          <h2>包装机数据</h2>
+          <div class="hint">按目录树展开产品后，可直接修改每个产品的包装机数据并保存。</div>
+          <div class="category-tree-zone mt12">
+            <h3>目录树</h3>
+            <ul id="packagingMachineTree" class="tree"></ul>
           </div>
         </section>
 
