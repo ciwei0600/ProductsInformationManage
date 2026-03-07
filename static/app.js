@@ -3,6 +3,7 @@ const state = {
   categoryTree: [],
   boomCategories: [],
   boomCategoryTree: [],
+  configUnits: [],
   page: 1,
   pageSize: 20,
   total: 0,
@@ -28,6 +29,7 @@ const state = {
   editingProductSpecId: null,
   editingBomItemId: null,
   editingBoomBaseItemId: null,
+  editingConfigUnitId: null,
 };
 
 function el(id) {
@@ -265,6 +267,24 @@ function fillBoomCategorySelect(selectId, includeBlank = true) {
     return;
   }
   select.value = "";
+}
+
+function renderBoomUnitSelect(selectedValue = "") {
+  const select = el("boomBaseUnit");
+  if (!select) return;
+
+  let html = '<option value="">未设置</option>';
+  for (const unit of state.configUnits) {
+    html += `<option value="${escapeHtml(unit.name)}">${escapeHtml(unit.name)}</option>`;
+  }
+  if (
+    selectedValue &&
+    !state.configUnits.some((unit) => (unit.name || "").trim() === String(selectedValue).trim())
+  ) {
+    html += `<option value="${escapeHtml(selectedValue)}">${escapeHtml(selectedValue)}</option>`;
+  }
+  select.innerHTML = html;
+  select.value = selectedValue || "";
 }
 
 function setCategoryAction(action) {
@@ -1299,6 +1319,111 @@ async function loadBoomCategories() {
   await loadBoomBaseItems();
 }
 
+function resetConfigUnitForm() {
+  state.editingConfigUnitId = null;
+  el("configUnitId").value = "";
+  el("configUnitName").value = "";
+  el("saveConfigUnitBtn").textContent = "新增单位";
+  el("cancelConfigUnitEditBtn").style.display = "none";
+}
+
+function renderConfigUnits(items) {
+  const body = el("configUnitsBody");
+  state.configUnits = [...items];
+  renderBoomUnitSelect(el("boomBaseUnit")?.value || "");
+
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="2" class="hint">暂无单位配置</td></tr>';
+    return;
+  }
+
+  body.innerHTML = items
+    .map(
+      (item) => `
+      <tr>
+        <td>${escapeHtml(item.name || "-")}</td>
+        <td>
+          <div class="button-row">
+            <button type="button" data-config-unit-action="edit" data-id="${item.id}">修改</button>
+            <button type="button" class="danger" data-config-unit-action="delete" data-id="${item.id}">删除</button>
+          </div>
+        </td>
+      </tr>
+      `
+    )
+    .join("");
+
+  body.querySelectorAll("button[data-config-unit-action='edit']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const unitId = Number(button.dataset.id);
+      const target = state.configUnits.find((item) => item.id === unitId);
+      if (!target) {
+        toast("未找到要修改的单位");
+        return;
+      }
+      state.editingConfigUnitId = unitId;
+      el("configUnitId").value = String(unitId);
+      el("configUnitName").value = target.name || "";
+      el("saveConfigUnitBtn").textContent = "保存修改";
+      el("cancelConfigUnitEditBtn").style.display = "";
+    });
+  });
+
+  body.querySelectorAll("button[data-config-unit-action='delete']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const unitId = Number(button.dataset.id);
+      deleteConfigUnit(unitId).catch((err) => toast(err.message));
+    });
+  });
+}
+
+async function loadConfigUnits() {
+  const data = await request("/api/config-units");
+  renderConfigUnits(data.items || []);
+}
+
+async function saveConfigUnit() {
+  const name = el("configUnitName").value.trim();
+  if (!name) {
+    throw new Error("单位名称不能为空");
+  }
+
+  const payload = { name };
+  if (state.editingConfigUnitId) {
+    await request(`/api/config-units/${state.editingConfigUnitId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("单位已修改");
+  } else {
+    await request("/api/config-units", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast("单位已新增");
+  }
+
+  const currentBoomCategoryId = Number(state.selectedBoomBaseCategoryId || 0);
+  resetConfigUnitForm();
+  await loadConfigUnits();
+  if (currentBoomCategoryId) {
+    await loadBoomBaseItems();
+  }
+}
+
+async function deleteConfigUnit(unitId) {
+  if (!unitId) return;
+  if (!window.confirm("确认删除该单位？")) return;
+  await request(`/api/config-units/${unitId}`, { method: "DELETE" });
+  toast("单位已删除");
+  if (state.editingConfigUnitId === unitId) {
+    resetConfigUnitForm();
+  }
+  await loadConfigUnits();
+}
+
 async function loadProducts() {
   const keyword = el("searchKeyword").value.trim();
   const categoryId = el("filterCategory").value;
@@ -1517,7 +1642,7 @@ function resetBoomBaseForm() {
   state.editingBoomBaseItemId = null;
   el("boomBaseItemId").value = "";
   el("boomBaseItemName").value = "";
-  el("boomBaseUnit").value = "";
+  renderBoomUnitSelect("");
   el("boomBaseDefaultUnitCost").value = "";
   el("boomBaseDescription").value = "";
   el("saveBoomBaseItemBtn").textContent = "新增项目";
@@ -1565,7 +1690,7 @@ function renderBoomBaseItems(items) {
       state.editingBoomBaseItemId = baseItemId;
       el("boomBaseItemId").value = String(target.id);
       el("boomBaseItemName").value = target.item_name || "";
-      el("boomBaseUnit").value = target.unit || "";
+      renderBoomUnitSelect(target.unit || "");
       el("boomBaseDefaultUnitCost").value = formatDecimal(Number(target.default_unit_cost || 0), 6);
       el("boomBaseDescription").value = target.description || "";
       el("saveBoomBaseItemBtn").textContent = "保存修改";
@@ -2227,6 +2352,10 @@ function bindEvents() {
     }
   });
 
+  el("saveConfigUnitBtn").addEventListener("click", () =>
+    saveConfigUnit().catch((err) => toast(err.message))
+  );
+  el("cancelConfigUnitEditBtn").addEventListener("click", () => resetConfigUnitForm());
   el("saveProductSpecBtn").addEventListener("click", () =>
     saveProductSpec().catch((err) => toast(err.message))
   );
@@ -2259,11 +2388,12 @@ async function bootstrap() {
   initSideNavigation();
   resetProductForm();
   resetBoomBaseForm();
+  resetConfigUnitForm();
   setProductImagePanelVisible(false);
   resetMaterialPanels();
   el("quoteDate").value = new Date().toISOString().slice(0, 10);
 
-  await Promise.all([loadCategories(), loadBoomCategories(), loadStats()]);
+  await Promise.all([loadCategories(), loadBoomCategories(), loadConfigUnits(), loadStats()]);
   await Promise.all([loadProducts(), loadMaterialProducts(), loadRecycleBinProducts()]);
 }
 

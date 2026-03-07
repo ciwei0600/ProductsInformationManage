@@ -37,6 +37,11 @@
           <a class="nav-level2" href="#page-material-cost" data-page="page-material-cost">成本计算</a>
           <a class="nav-level2" href="#page-material-quote" data-page="page-material-quote">报价单</a>
         </div>
+
+        <div class="nav-group">
+          <div class="nav-level1">配置</div>
+          <a class="nav-level2" href="#page-config-units" data-page="page-config-units">单位管理</a>
+        </div>
       </aside>
 
       <section class="content-column">
@@ -307,7 +312,9 @@
               </div>
               <div class="row">
                 <label for="boomBaseUnit">单位</label>
-                <input id="boomBaseUnit" type="text" placeholder="可选，如 个、米、克" />
+                <select id="boomBaseUnit">
+                  <option value="">未设置</option>
+                </select>
               </div>
               <div class="row">
                 <label for="boomBaseDefaultUnitCost">原料价格</label>
@@ -431,6 +438,36 @@
           <div id="quoteTotal" class="hint mt12">总数量: 0 | 报价总额: 0.00</div>
           <div class="button-row mt12">
             <button id="clearQuoteBtn" class="danger">清空报价单</button>
+          </div>
+        </section>
+
+        <section class="card content-page" id="page-config-units">
+          <h2>单位管理</h2>
+          <div class="hint">这里维护 BOOM 基础信息可选的单位。</div>
+          <input id="configUnitId" type="hidden" />
+          <div class="row mt12">
+            <label for="configUnitName">单位名称</label>
+            <input id="configUnitName" type="text" placeholder="如 个、米、克、kg" />
+          </div>
+          <div class="button-row">
+            <button id="saveConfigUnitBtn" type="button">新增单位</button>
+            <button id="cancelConfigUnitEditBtn" type="button" class="ghost" style="display: none">
+              取消修改
+            </button>
+          </div>
+
+          <div class="table-wrap mt12">
+            <table>
+              <thead>
+                <tr>
+                  <th>单位名称</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="configUnitsBody">
+                <tr><td colspan="2" class="hint">暂无单位配置</td></tr>
+              </tbody>
+            </table>
           </div>
         </section>
       </section>

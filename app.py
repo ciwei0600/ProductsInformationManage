@@ -251,6 +251,100 @@ def create_app() -> Flask:
         conn.commit()
         return jsonify({"ok": True})
 
+    @app.route("/api/config-units", methods=["GET"])
+    def list_config_units():
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT id, name, sort_order, created_at, updated_at
+            FROM config_units
+            ORDER BY sort_order, id
+            """
+        ).fetchall()
+        return jsonify({"items": [dict(row) for row in rows]})
+
+    @app.route("/api/config-units", methods=["POST"])
+    def create_config_unit():
+        conn = get_db()
+        payload = request.get_json(silent=True) or {}
+        name = (payload.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "单位名称不能为空"}), 400
+
+        duplicate = conn.execute("SELECT id FROM config_units WHERE name = ?", (name,)).fetchone()
+        if duplicate is not None:
+            return jsonify({"error": "单位名称已存在"}), 400
+
+        sort_order = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM config_units"
+        ).fetchone()[0]
+        now = utc_now()
+        cursor = conn.execute(
+            """
+            INSERT INTO config_units(name, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (name, int(sort_order), now, now),
+        )
+        conn.commit()
+        return jsonify({"id": int(cursor.lastrowid)})
+
+    @app.route("/api/config-units/<int:unit_id>", methods=["PUT"])
+    def update_config_unit(unit_id: int):
+        conn = get_db()
+        existing = conn.execute("SELECT id, name FROM config_units WHERE id = ?", (unit_id,)).fetchone()
+        if existing is None:
+            return jsonify({"error": "单位不存在"}), 404
+
+        payload = request.get_json(silent=True) or {}
+        name = (payload.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "单位名称不能为空"}), 400
+
+        duplicate = conn.execute(
+            "SELECT id FROM config_units WHERE id != ? AND name = ?",
+            (unit_id, name),
+        ).fetchone()
+        if duplicate is not None:
+            return jsonify({"error": "单位名称已存在"}), 400
+
+        old_name = (existing["name"] or "").strip()
+        now = utc_now()
+        conn.execute(
+            "UPDATE config_units SET name = ?, updated_at = ? WHERE id = ?",
+            (name, now, unit_id),
+        )
+        if old_name and old_name != name:
+            conn.execute(
+                """
+                UPDATE category_boom_base_items
+                SET unit = ?, updated_at = ?
+                WHERE unit = ?
+                """,
+                (name, now, old_name),
+            )
+        conn.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/config-units/<int:unit_id>", methods=["DELETE"])
+    def delete_config_unit(unit_id: int):
+        conn = get_db()
+        existing = conn.execute("SELECT id, name FROM config_units WHERE id = ?", (unit_id,)).fetchone()
+        if existing is None:
+            return jsonify({"error": "单位不存在"}), 404
+
+        unit_name = (existing["name"] or "").strip()
+        in_use_count = conn.execute(
+            "SELECT COUNT(*) FROM category_boom_base_items WHERE unit = ?",
+            (unit_name,),
+        ).fetchone()[0]
+        if in_use_count > 0:
+            return jsonify({"error": "该单位正在被BOOM基础信息使用，无法删除"}), 400
+
+        conn.execute("DELETE FROM config_units WHERE id = ?", (unit_id,))
+        conn.commit()
+        return jsonify({"ok": True})
+
     @app.route("/api/products", methods=["GET"])
     def list_products():
         conn = get_db()
@@ -1031,6 +1125,10 @@ def create_app() -> Flask:
         description = (payload.get("description") or payload.get("remark") or "").strip()
         if not item_name:
             return jsonify({"error": "项目名称不能为空"}), 400
+        if unit:
+            unit_row = conn.execute("SELECT id FROM config_units WHERE name = ?", (unit,)).fetchone()
+            if unit_row is None:
+                return jsonify({"error": "请选择配置页面中已存在的单位"}), 400
 
         try:
             default_unit_cost = float(payload.get("default_unit_cost") or 0)
@@ -1093,6 +1191,10 @@ def create_app() -> Flask:
         description = (payload.get("description") or payload.get("remark") or "").strip()
         if not item_name:
             return jsonify({"error": "项目名称不能为空"}), 400
+        if unit:
+            unit_row = conn.execute("SELECT id FROM config_units WHERE name = ?", (unit,)).fetchone()
+            if unit_row is None:
+                return jsonify({"error": "请选择配置页面中已存在的单位"}), 400
 
         try:
             default_unit_cost = float(payload.get("default_unit_cost") or 0)
@@ -1222,6 +1324,17 @@ def init_db() -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_boom_categories_name_parent
         ON boom_categories(name, COALESCE(parent_id, -1));
 
+        CREATE TABLE IF NOT EXISTS config_units (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_config_units_order
+        ON config_units(sort_order, id);
+
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT NOT NULL UNIQUE,
@@ -1308,6 +1421,7 @@ def init_db() -> None:
     migrate_boom_tables_if_needed(conn)
     ensure_product_bom_columns(conn)
     ensure_boom_base_columns(conn)
+    backfill_config_units_from_boom_base(conn)
     seed_boom_categories_from_product_categories(conn)
     backfill_boom_base_categories(conn)
     backfill_product_boom_categories(conn)
@@ -1481,6 +1595,38 @@ def ensure_boom_base_columns(conn: sqlite3.Connection) -> None:
         ON category_boom_base_items(boom_category_id, sort_order, id)
         """
     )
+
+
+def backfill_config_units_from_boom_base(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        SELECT DISTINCT TRIM(COALESCE(unit, '')) AS unit_name
+        FROM category_boom_base_items
+        WHERE TRIM(COALESCE(unit, '')) != ''
+        ORDER BY unit_name
+        """
+    ).fetchall()
+    if not rows:
+        return
+
+    existing = {(row[0] or "").strip() for row in conn.execute("SELECT name FROM config_units").fetchall()}
+    next_sort_order = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM config_units"
+    ).fetchone()[0]
+    now = utc_now()
+    for row in rows:
+        unit_name = (row[0] or "").strip()
+        if not unit_name or unit_name in existing:
+            continue
+        conn.execute(
+            """
+            INSERT INTO config_units(name, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (unit_name, int(next_sort_order), now, now),
+        )
+        existing.add(unit_name)
+        next_sort_order += 1
 
 
 def seed_boom_categories_from_product_categories(conn: sqlite3.Connection) -> None:
