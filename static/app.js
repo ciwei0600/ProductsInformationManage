@@ -14,6 +14,8 @@ const state = {
   draggingTreeCategoryId: null,
   treeCategoryDropTargetId: null,
   treeCategoryDropPosition: null,
+  treeProductDropTargetId: null,
+  treeProductDropPosition: null,
   movingTreeProductId: null,
   selectedMoveCategoryId: null,
   treeMoveLoading: false,
@@ -154,6 +156,11 @@ function updateBoomBaseSaveButtonState() {
   saveBtn.disabled = !state.selectedBoomBaseCategoryId;
 }
 
+function productSortOrderLabel(product) {
+  const sortOrder = Number(product?.sort_order);
+  return Number.isFinite(sortOrder) ? `${sortOrder}. ` : "";
+}
+
 function productDisplayName(product) {
   const name = product.chinese_name || product.name || "";
   return `${product.code} | ${name}`;
@@ -256,6 +263,13 @@ function categoryPathMap() {
   return buildPathMap(state.categories);
 }
 
+function formatCategoryLabel(category) {
+  if (!category) return "";
+  const sortOrder = Number(category.sort_order);
+  const prefix = Number.isFinite(sortOrder) ? `${sortOrder}. ` : "";
+  return `${prefix}${category.name || ""}`;
+}
+
 function displayBoomCategoryName(name) {
   return String(name || "").replace(/^\s*\d+\s*[.．、。]\s*/, "").trim();
 }
@@ -339,6 +353,10 @@ function updateTreeCategoryDropIndicator(container, targetKey, positionKey, sele
 function clearProductCategoryReorderState(container = el("categoryTree")) {
   state.draggingTreeCategoryId = null;
   clearTreeCategoryDropIndicator(container, "treeCategoryDropTargetId", "treeCategoryDropPosition");
+}
+
+function clearProductTreeProductReorderState(container = el("categoryTree")) {
+  clearTreeCategoryDropIndicator(container, "treeProductDropTargetId", "treeProductDropPosition");
 }
 
 function clearBoomCategoryReorderState(container = el("boomBaseCategoryTree")) {
@@ -675,7 +693,9 @@ function fillCategorySelect(selectId, includeAll = false) {
 
   for (const category of state.categories) {
     const path = pathMap.get(category.id) || category.name;
-    html += `<option value="${category.id}">${path}</option>`;
+    const sortOrder = Number(category.sort_order);
+    const prefix = Number.isFinite(sortOrder) ? `[${sortOrder}] ` : "";
+    html += `<option value="${category.id}">${escapeHtml(prefix + path)}</option>`;
   }
 
   select.innerHTML = html;
@@ -994,6 +1014,7 @@ function renderProductCategoryMoveTree() {
       const hasChildren = Boolean(node.children && node.children.length > 0);
       const expanded = state.expandedCategoryIds.has(node.id);
       const active = state.selectedMoveCategoryId === node.id ? "active" : "";
+      const categoryLabel = formatCategoryLabel(node);
       const sign = hasChildren ? (expanded ? "-" : "+") : "·";
       const signClass = hasChildren ? "tree-sign" : "tree-sign empty";
       const padding = 10 + depth * 14;
@@ -1005,7 +1026,7 @@ function renderProductCategoryMoveTree() {
           style="padding-left:${padding}px"
         >
           <span class="${signClass}">${sign}</span>
-          <span>${escapeHtml(node.name)}</span>
+          <span>${escapeHtml(categoryLabel)}</span>
         </div>
       `;
       if (expanded && hasChildren) {
@@ -1060,6 +1081,7 @@ function renderCategoryTree() {
         ? "drag-target-after"
         : "";
       const draggingCategory = state.draggingTreeCategoryId === node.id ? "dragging-category" : "";
+      const categoryLabel = formatCategoryLabel(node);
       const products = categoryProducts.get(node.id) || [];
       const hasChildren = Boolean(node.children && node.children.length > 0);
       const hasContent = hasChildren || products.length > 0;
@@ -1076,7 +1098,7 @@ function renderCategoryTree() {
           draggable="true"
         >
           <span class="${signClass}">${sign}</span>
-          <span>${node.name}</span>
+          <span>${categoryLabel}</span>
         </div>
       `;
       if (expanded && hasChildren) {
@@ -1092,15 +1114,26 @@ function renderCategoryTree() {
               : '<div class="tree-product-no-image">无图</div>';
             const activeProduct = state.selectedTreeProductId === product.id ? "active" : "";
             const draggingProduct = state.draggingTreeProductId === product.id ? "dragging" : "";
+            const reorderBefore = state.treeProductDropTargetId === product.id && state.treeProductDropPosition === "before"
+              ? "drag-target-before"
+              : "";
+            const reorderAfter = state.treeProductDropTargetId === product.id && state.treeProductDropPosition === "after"
+              ? "drag-target-after"
+              : "";
             return `
-            <li class="tree-product-item ${activeProduct} ${draggingProduct}" data-product-id="${product.id}" draggable="true">
+            <li
+              class="tree-product-item ${activeProduct} ${draggingProduct} ${reorderBefore} ${reorderAfter}"
+              data-product-id="${product.id}"
+              data-category-id="${product.category_id ?? ""}"
+              draggable="true"
+            >
               <div class="tree-product-main">
                 <div class="tree-product-media">
                   ${imageBlock}
                 </div>
                 <div class="tree-product-info">
                   <div class="tree-product-head">
-                    <div class="tree-product-title">${product.code || "-"} | ${name}</div>
+                    <div class="tree-product-title">${productSortOrderLabel(product)}${product.code || "-"} | ${name}</div>
                     <div class="button-row">
                       <button type="button" class="tree-product-edit-btn" data-tree-edit-id="${product.id}">修改</button>
                       <button type="button" class="tree-product-edit-btn" data-tree-change-category-id="${product.id}">修改目录</button>
@@ -1152,6 +1185,7 @@ function renderCategoryTree() {
       if (!categoryId) return;
       state.draggingTreeProductId = null;
       state.treeDropCategoryId = null;
+      clearProductTreeProductReorderState(container);
       state.draggingTreeCategoryId = categoryId;
       item.classList.add("dragging-category");
       if (event.dataTransfer) {
@@ -1165,6 +1199,7 @@ function renderCategoryTree() {
       if (!categoryId) return;
       if (state.draggingTreeProductId) {
         event.preventDefault();
+        clearProductTreeProductReorderState(container);
         state.treeDropCategoryId = categoryId;
         item.classList.add("drag-target");
         return;
@@ -1214,6 +1249,7 @@ function renderCategoryTree() {
       if (!categoryId) return;
       if (state.draggingTreeProductId) {
         const productId = Number(state.draggingTreeProductId);
+        clearProductTreeProductReorderState(container);
         state.treeDropCategoryId = null;
         item.classList.remove("drag-target");
         moveTreeProductToCategory(productId, categoryId).catch((err) => toast(err.message));
@@ -1228,6 +1264,7 @@ function renderCategoryTree() {
 
     item.addEventListener("dragend", () => {
       clearProductCategoryReorderState(container);
+      clearProductTreeProductReorderState(container);
       item.classList.remove("dragging-category");
     });
   });
@@ -1246,6 +1283,7 @@ function renderCategoryTree() {
       const productId = Number(item.dataset.productId);
       if (!productId) return;
       clearProductCategoryReorderState(container);
+      clearProductTreeProductReorderState(container);
       state.draggingTreeProductId = productId;
       state.treeDropCategoryId = null;
       item.classList.add("dragging");
@@ -1255,9 +1293,63 @@ function renderCategoryTree() {
       }
     });
 
+    item.addEventListener("dragover", (event) => {
+      const productId = Number(item.dataset.productId);
+      const draggedId = Number(state.draggingTreeProductId || 0);
+      if (!productId || !draggedId || draggedId === productId) {
+        clearProductTreeProductReorderState(container);
+        return;
+      }
+
+      const draggedProduct = getMaterialProductById(draggedId);
+      const targetProduct = getMaterialProductById(productId);
+      const draggedCategoryId = draggedProduct?.category_id == null ? null : Number(draggedProduct.category_id);
+      const targetCategoryId = targetProduct?.category_id == null ? null : Number(targetProduct.category_id);
+      if (draggedCategoryId !== targetCategoryId) {
+        clearProductTreeProductReorderState(container);
+        return;
+      }
+
+      event.preventDefault();
+      state.treeDropCategoryId = null;
+      updateTreeCategoryDropIndicator(
+        container,
+        "treeProductDropTargetId",
+        "treeProductDropPosition",
+        '[data-product-id',
+        productId,
+        getTreeDropPosition(event, item)
+      );
+    });
+
+    item.addEventListener("dragleave", (event) => {
+      const productId = Number(item.dataset.productId);
+      if (
+        state.treeProductDropTargetId === productId &&
+        !item.contains(event.relatedTarget)
+      ) {
+        clearProductTreeProductReorderState(container);
+      }
+    });
+
+    item.addEventListener("drop", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const targetId = Number(item.dataset.productId);
+      const draggedId = Number(state.draggingTreeProductId || 0);
+      const position = state.treeProductDropPosition || "after";
+      clearProductTreeProductReorderState(container);
+      if (!targetId || !draggedId || draggedId === targetId) {
+        renderCategoryTree();
+        return;
+      }
+      reorderTreeProduct(draggedId, targetId, position).catch((err) => toast(err.message));
+    });
+
     item.addEventListener("dragend", () => {
       state.draggingTreeProductId = null;
       state.treeDropCategoryId = null;
+      clearProductTreeProductReorderState(container);
       renderCategoryTree();
     });
   });
@@ -1355,6 +1447,36 @@ async function reorderTreeCategory(draggedId, targetId, position) {
 
   await loadCategories();
   toast("产品目录顺序已更新");
+}
+
+async function reorderTreeProduct(draggedId, targetId, position) {
+  const draggedProduct = getMaterialProductById(draggedId);
+  const targetProduct = getMaterialProductById(targetId);
+  const draggedCategoryId = draggedProduct?.category_id == null ? null : Number(draggedProduct.category_id);
+  const targetCategoryId = targetProduct?.category_id == null ? null : Number(targetProduct.category_id);
+
+  if (!draggedProduct || !targetProduct || draggedCategoryId !== targetCategoryId) {
+    throw new Error("只能拖动调整同目录下产品顺序");
+  }
+
+  await request("/api/products/reorder", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      dragged_id: draggedId,
+      target_id: targetId,
+      position,
+    }),
+  });
+
+  await Promise.all([loadProducts(), loadMaterialProducts()]);
+  state.selectedTreeProductId = draggedId;
+  if (draggedCategoryId) {
+    state.selectedTreeCategoryId = draggedCategoryId;
+    state.expandedCategoryIds.add(draggedCategoryId);
+  }
+  renderCategoryTree();
+  toast("产品顺序已更新");
 }
 
 function renderRecycleBinTree() {
@@ -1501,7 +1623,7 @@ function renderRecycleBinTree() {
 function renderProducts(items) {
   const body = el("productsBody");
   if (!items.length) {
-    body.innerHTML = '<tr><td colspan="11" class="hint">暂无数据</td></tr>';
+    body.innerHTML = '<tr><td colspan="12" class="hint">暂无数据</td></tr>';
     return;
   }
 
@@ -1513,6 +1635,7 @@ function renderProducts(items) {
         : '<span class="hint">无图</span>';
       return `
       <tr>
+        <td>${item.sort_order || "-"}</td>
         <td>${item.code}</td>
         <td>${chineseName}</td>
         <td>${item.effect || "-"}</td>

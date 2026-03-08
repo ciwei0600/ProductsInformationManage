@@ -520,6 +520,7 @@ def create_app() -> Flask:
                 p.packaging_machine_amplitude,
                 p.packaging_machine_program,
                 p.category_id,
+                p.sort_order,
                 p.created_at,
                 p.updated_at,
                 c.name AS category_name,
@@ -545,7 +546,7 @@ def create_app() -> Flask:
             {where_sql}
             ORDER BY
                 COALESCE(p.category_id, 0) ASC,
-                p.code COLLATE NATURAL_ZH_NUM ASC,
+                p.sort_order ASC,
                 p.id ASC
             LIMIT ? OFFSET ?
             """,
@@ -582,6 +583,7 @@ def create_app() -> Flask:
                 p.packaging_machine_amplitude,
                 p.packaging_machine_program,
                 p.category_id,
+                p.sort_order,
                 p.boom_category_id,
                 p.created_at,
                 p.updated_at,
@@ -737,7 +739,7 @@ def create_app() -> Flask:
     def delete_product(product_id: int):
         conn = get_db()
         product = conn.execute(
-            "SELECT id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+            "SELECT id, category_id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
             (product_id,),
         ).fetchone()
         if product is None:
@@ -747,6 +749,7 @@ def create_app() -> Flask:
             "UPDATE products SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?",
             (utc_now(), utc_now(), product_id),
         )
+        normalize_product_sort_orders(conn, category_id=product["category_id"])
         conn.commit()
         return jsonify({"ok": True})
 
@@ -779,11 +782,41 @@ def create_app() -> Flask:
 
         now = utc_now()
         conn.execute(
-            "UPDATE products SET category_id = ?, updated_at = ? WHERE id = ?",
-            (target_category_id, now, product_id),
+            "UPDATE products SET category_id = ?, sort_order = ?, updated_at = ? WHERE id = ?",
+            (
+                target_category_id,
+                next_product_sort_order(conn, target_category_id),
+                now,
+                product_id,
+            ),
         )
+        normalize_product_sort_orders(conn, category_id=current_category_id)
         conn.commit()
         return jsonify({"ok": True, "category_id": target_category_id, "category_name": category["name"]})
+
+    @app.route("/api/products/reorder", methods=["PUT"])
+    def reorder_products():
+        payload = request.get_json(silent=True) or {}
+        try:
+            dragged_id = int(payload.get("dragged_id"))
+            target_id = int(payload.get("target_id"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "无效的产品编号"}), 400
+
+        position = str(payload.get("position") or "after").strip().lower()
+        if position not in {"before", "after"}:
+            return jsonify({"error": "无效的排序位置"}), 400
+
+        conn = get_db()
+        try:
+            reorder_sibling_products(conn, dragged_id, target_id, position)
+        except LookupError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        conn.commit()
+        return jsonify({"ok": True})
 
     @app.route("/api/products/<int:product_id>/packaging-machine", methods=["PUT"])
     def update_product_packaging_machine(product_id: int):
@@ -853,6 +886,7 @@ def create_app() -> Flask:
                 p.package_size,
                 p.gross_weight,
                 p.category_id,
+                p.sort_order,
                 p.deleted_at,
                 p.updated_at,
                 c.name AS category_name,
@@ -868,7 +902,7 @@ def create_app() -> Flask:
             WHERE COALESCE(p.is_deleted, 0) = 1
             ORDER BY
                 COALESCE(p.category_id, 0) ASC,
-                p.code COLLATE NATURAL_ZH_NUM ASC,
+                p.sort_order ASC,
                 p.id ASC
             """
         ).fetchall()
@@ -926,10 +960,15 @@ def create_app() -> Flask:
         conn.execute(
             """
             UPDATE products
-            SET is_deleted = 0, deleted_at = NULL, category_id = ?, updated_at = ?
+            SET is_deleted = 0, deleted_at = NULL, category_id = ?, sort_order = ?, updated_at = ?
             WHERE id = ?
             """,
-            (restore_category_id, utc_now(), product_id),
+            (
+                restore_category_id,
+                next_product_sort_order(conn, restore_category_id),
+                utc_now(),
+                product_id,
+            ),
         )
         conn.commit()
         return jsonify({"ok": True})
@@ -1665,6 +1704,7 @@ def init_db() -> None:
             packaging_machine_bag_length TEXT NOT NULL DEFAULT '',
             packaging_machine_amplitude TEXT NOT NULL DEFAULT '',
             packaging_machine_program TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
             is_deleted INTEGER NOT NULL DEFAULT 0,
             deleted_at TEXT,
             created_at TEXT NOT NULL,
@@ -1784,6 +1824,7 @@ def ensure_product_columns(conn: sqlite3.Connection) -> None:
         "packaging_machine_bag_length": "TEXT NOT NULL DEFAULT ''",
         "packaging_machine_amplitude": "TEXT NOT NULL DEFAULT ''",
         "packaging_machine_program": "TEXT NOT NULL DEFAULT ''",
+        "sort_order": "INTEGER NOT NULL DEFAULT 0",
         "boom_category_id": "INTEGER REFERENCES boom_categories(id) ON DELETE SET NULL",
         "is_deleted": "INTEGER NOT NULL DEFAULT 0",
         "deleted_at": "TEXT",
@@ -1814,6 +1855,20 @@ def ensure_product_columns(conn: sqlite3.Connection) -> None:
         WHERE purchase_price IS NULL
         """
     )
+    conn.execute(
+        """
+        UPDATE products
+        SET sort_order = id
+        WHERE COALESCE(sort_order, 0) = 0
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_products_category_order
+        ON products(category_id, is_deleted, sort_order, id)
+        """
+    )
+    normalize_product_sort_orders(conn, include_all=True)
 
 
 def ensure_category_columns(conn: sqlite3.Connection) -> None:
@@ -2169,6 +2224,79 @@ def normalize_categories(conn: sqlite3.Connection) -> None:
             )
 
 
+def normalize_product_sort_orders(
+    conn: sqlite3.Connection, category_id: Optional[int] = None, include_all: bool = False
+) -> None:
+    if include_all:
+        rows = conn.execute(
+            """
+            SELECT id, category_id, sort_order
+            FROM products
+            WHERE COALESCE(is_deleted, 0) = 0
+            ORDER BY COALESCE(category_id, 0), sort_order, id
+            """
+        ).fetchall()
+        next_sort_order_by_category: dict[Optional[int], int] = {}
+        for row in rows:
+            current_category_id = row[1]
+            next_sort_order = next_sort_order_by_category.get(current_category_id, 1)
+            next_sort_order_by_category[current_category_id] = next_sort_order + 1
+            if int(row[2] or 0) != next_sort_order:
+                conn.execute(
+                    "UPDATE products SET sort_order = ? WHERE id = ?",
+                    (next_sort_order, row[0]),
+                )
+        return
+
+    if category_id is None:
+        rows = conn.execute(
+            """
+            SELECT id, sort_order
+            FROM products
+            WHERE category_id IS NULL AND COALESCE(is_deleted, 0) = 0
+            ORDER BY sort_order, id
+            """
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT id, sort_order
+            FROM products
+            WHERE category_id = ? AND COALESCE(is_deleted, 0) = 0
+            ORDER BY sort_order, id
+            """,
+            (category_id,),
+        ).fetchall()
+
+    for sort_order, row in enumerate(rows, start=1):
+        if int(row[1] or 0) != sort_order:
+            conn.execute(
+                "UPDATE products SET sort_order = ? WHERE id = ?",
+                (sort_order, row[0]),
+            )
+
+
+def next_product_sort_order(conn: sqlite3.Connection, category_id: Optional[int]) -> int:
+    if category_id is None:
+        row = conn.execute(
+            """
+            SELECT COALESCE(MAX(sort_order), 0) + 1
+            FROM products
+            WHERE category_id IS NULL AND COALESCE(is_deleted, 0) = 0
+            """
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT COALESCE(MAX(sort_order), 0) + 1
+            FROM products
+            WHERE category_id = ? AND COALESCE(is_deleted, 0) = 0
+            """,
+            (category_id,),
+        ).fetchone()
+    return int(row[0] or 1)
+
+
 def ensure_boom_base_columns(conn: sqlite3.Connection) -> None:
     existing_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(category_boom_base_items)").fetchall()
@@ -2437,6 +2565,70 @@ def reorder_sibling_categories(
         )
 
 
+def reorder_sibling_products(
+    conn: sqlite3.Connection, dragged_id: int, target_id: int, position: str
+) -> None:
+    dragged = conn.execute(
+        """
+        SELECT id, category_id
+        FROM products
+        WHERE id = ? AND COALESCE(is_deleted, 0) = 0
+        """,
+        (dragged_id,),
+    ).fetchone()
+    target = conn.execute(
+        """
+        SELECT id, category_id
+        FROM products
+        WHERE id = ? AND COALESCE(is_deleted, 0) = 0
+        """,
+        (target_id,),
+    ).fetchone()
+    if dragged is None or target is None:
+        raise LookupError("产品不存在")
+
+    dragged_category_id = dragged["category_id"]
+    target_category_id = target["category_id"]
+    if dragged_category_id != target_category_id:
+        raise ValueError("只能调整同目录下产品的顺序")
+
+    if dragged_category_id is None:
+        siblings = conn.execute(
+            """
+            SELECT id
+            FROM products
+            WHERE category_id IS NULL AND COALESCE(is_deleted, 0) = 0
+            ORDER BY sort_order, id
+            """
+        ).fetchall()
+    else:
+        siblings = conn.execute(
+            """
+            SELECT id
+            FROM products
+            WHERE category_id = ? AND COALESCE(is_deleted, 0) = 0
+            ORDER BY sort_order, id
+            """,
+            (dragged_category_id,),
+        ).fetchall()
+
+    ordered_ids = [int(row[0]) for row in siblings if int(row[0]) != dragged_id]
+    try:
+        target_index = ordered_ids.index(target_id)
+    except ValueError as exc:
+        raise LookupError("目标产品不存在") from exc
+
+    insert_index = target_index if position == "before" else target_index + 1
+    ordered_ids.insert(insert_index, dragged_id)
+
+    now = utc_now()
+    for sort_order, product_id in enumerate(ordered_ids, start=1):
+        conn.execute(
+            "UPDATE products SET sort_order = ?, updated_at = ? WHERE id = ?",
+            (sort_order, now, product_id),
+        )
+
+
 def parse_optional_int(value: Any, field_name: str) -> Optional[int]:
     if value in ("", None):
         return None
@@ -2557,13 +2749,14 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
     now = utc_now()
 
     if product_id is None:
+        sort_order = next_product_sort_order(conn, category_id)
         cursor = conn.execute(
             """
             INSERT INTO products(
                 code, name, chinese_name, is_purchased, purchase_price, effect, category_id, boom_category_id, description, spray_radius,
-                unit_weight, package_quantity, package_size, gross_weight, created_at, updated_at
+                unit_weight, package_quantity, package_size, gross_weight, sort_order, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 code,
@@ -2580,6 +2773,7 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
                 package_quantity,
                 package_size,
                 gross_weight,
+                sort_order,
                 now,
                 now,
             ),
@@ -2588,11 +2782,18 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
         return int(cursor.lastrowid)
 
     current = conn.execute(
-        "SELECT id FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
+        "SELECT id, category_id, sort_order FROM products WHERE id = ? AND COALESCE(is_deleted, 0) = 0",
         (product_id,),
     ).fetchone()
     if current is None:
         raise LookupError("产品不存在")
+
+    current_category_id = current["category_id"]
+    next_sort_order = (
+        next_product_sort_order(conn, category_id)
+        if current_category_id != category_id
+        else int(current["sort_order"] or 0) or 1
+    )
 
     conn.execute(
         """
@@ -2612,6 +2813,7 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
             package_quantity = ?,
             package_size = ?,
             gross_weight = ?,
+            sort_order = ?,
             updated_at = ?
         WHERE id = ?
         """,
@@ -2630,10 +2832,13 @@ def save_product(product_id: Optional[int], payload: dict[str, Any]) -> int:
             package_quantity,
             package_size,
             gross_weight,
+            next_sort_order,
             now,
             product_id,
         ),
     )
+    if current_category_id != category_id:
+        normalize_product_sort_orders(conn, category_id=current_category_id)
     conn.commit()
     return product_id
 

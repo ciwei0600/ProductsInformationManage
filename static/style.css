@@ -614,6 +614,20 @@ button.ghost {
   background: #eefcf9;
 }
 
+.tree-product-item.drag-target-before,
+.tree-product-item.drag-target-after {
+  background: #eefcf9;
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.18) inset;
+}
+
+.tree-product-item.drag-target-before {
+  border-top: 3px solid #0f766e;
+}
+
+.tree-product-item.drag-target-after {
+  border-bottom: 3px solid #0f766e;
+}
+
 .filter-grid {
   display: grid;
   grid-template-columns: 1fr 220px 100px;
