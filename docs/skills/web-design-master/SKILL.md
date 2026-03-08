@@ -18,6 +18,7 @@ Apply all rules below unless the user explicitly asks to relax them:
 - 没让你改动的东西不要改。
 - 删除本地数据前，必须先获得用户二次确认。
 - 每次完成项目更新后，必须同步修改页面底部显示的版本号和更新时间。
+- 页面底部的更新时间必须使用实际当前时间，不得沿用旧值；提交前和推送前必须再次核对一次。
 - Keep services production-oriented for 24x7 operation.
 - Include automated database backup and restore verification.
 - Build both frontend and backend with clear interfaces and versioned contracts.
@@ -81,6 +82,7 @@ Provide these items in the final handoff when relevant:
 - Operational checklist for monitoring and incident response
 
 If the project exposes a footer version and update time, bump both before final handoff and before pushing changes.
+Use the real current local time when writing the footer update time, and verify the rendered value matches the current release moment rather than a previous edit time.
 
 ## Response Style
 
