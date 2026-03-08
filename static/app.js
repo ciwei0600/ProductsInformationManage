@@ -163,7 +163,7 @@ function updateBoomBaseSaveButtonState() {
 }
 
 function productSortOrderLabel(product) {
-  const formatted = formatOrderNumber(product?.sort_order);
+  const formatted = product?.order_code || formatOrderNumber(product?.sort_order);
   return formatted ? `${formatted}. ` : "";
 }
 
@@ -1641,7 +1641,7 @@ function renderProducts(items) {
         : '<span class="hint">无图</span>';
       return `
       <tr>
-        <td>${formatOrderNumber(item.sort_order) || "-"}</td>
+        <td>${item.order_code || formatOrderNumber(item.sort_order) || "-"}</td>
         <td>${item.code}</td>
         <td>${chineseName}</td>
         <td>${item.effect || "-"}</td>
@@ -2121,6 +2121,7 @@ async function deleteBomItem(bomItemId) {
 
 function resetProductForm() {
   el("productId").value = "";
+  el("productOrderCode").value = "";
   el("productCode").value = "";
   el("productChineseName").value = "";
   el("productIsPurchased").checked = false;
@@ -3113,6 +3114,7 @@ async function loadProductDetail(id) {
   state.selectedProductMainImagePath = null;
 
   el("productId").value = String(product.id);
+  el("productOrderCode").value = product.order_code || formatOrderNumber(product.sort_order) || "";
   el("productCode").value = product.code || "";
   el("productChineseName").value = product.chinese_name || product.name || "";
   el("productIsPurchased").checked = Boolean(Number(product.is_purchased || 0));

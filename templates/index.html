@@ -66,7 +66,7 @@
         <section class="card content-page" id="page-product-list">
           <h2>产品筛选与列表</h2>
           <div class="filter-grid">
-            <input id="searchKeyword" type="text" placeholder="按编号/中文名/作用/描述搜索" />
+            <input id="searchKeyword" type="text" placeholder="按编码/中文名/作用/描述搜索" />
             <select id="filterCategory"></select>
             <button id="searchBtn">查询</button>
           </div>
@@ -75,8 +75,8 @@
             <table>
               <thead>
                 <tr>
-                  <th>序号</th>
-                  <th>产品编号</th>
+                  <th>编号</th>
+                  <th>编码</th>
                   <th>中文名</th>
                   <th>作用</th>
                   <th>喷洒半径</th>
@@ -125,6 +125,10 @@
             <div class="product-form-col">
               <section class="detail-section">
                 <h3>基本信息</h3>
+                <div class="row">
+                  <label for="productOrderCode">编号</label>
+                  <input id="productOrderCode" type="text" placeholder="保存后自动生成，如 01" readonly />
+                </div>
                 <div class="row">
                   <label for="productCode">编码</label>
                   <div class="field-col">
@@ -544,8 +548,8 @@
     <!-- 发布新版本时，必须同步修改这里的版本号和更新时间。 -->
     <footer class="app-footer">
       <div class="app-footer-meta">
-        <span>版本：v2026.03.08.1344</span>
-        <span>更新时间：2026-03-08 13:44 CST</span>
+        <span>版本：v2026.03.08.1348</span>
+        <span>更新时间：2026-03-08 13:48 CST</span>
       </div>
     </footer>
 
