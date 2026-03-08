@@ -116,6 +116,12 @@ function setProductCodeError(message = "") {
   node.textContent = message;
 }
 
+function formatOrderNumber(value) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number <= 0) return "";
+  return String(number).padStart(2, "0");
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -157,8 +163,8 @@ function updateBoomBaseSaveButtonState() {
 }
 
 function productSortOrderLabel(product) {
-  const sortOrder = Number(product?.sort_order);
-  return Number.isFinite(sortOrder) ? `${sortOrder}. ` : "";
+  const formatted = formatOrderNumber(product?.sort_order);
+  return formatted ? `${formatted}. ` : "";
 }
 
 function productDisplayName(product) {
@@ -265,8 +271,8 @@ function categoryPathMap() {
 
 function formatCategoryLabel(category) {
   if (!category) return "";
-  const sortOrder = Number(category.sort_order);
-  const prefix = Number.isFinite(sortOrder) ? `${sortOrder}. ` : "";
+  const formatted = formatOrderNumber(category.sort_order);
+  const prefix = formatted ? `${formatted}. ` : "";
   return `${prefix}${category.name || ""}`;
 }
 
@@ -306,8 +312,8 @@ function boomCategoryPathMap() {
 
 function formatBoomCategoryLabel(category) {
   if (!category) return "";
-  const sortOrder = Number(category.sort_order);
-  const prefix = Number.isFinite(sortOrder) ? `${sortOrder}. ` : "";
+  const formatted = formatOrderNumber(category.sort_order);
+  const prefix = formatted ? `${formatted}. ` : "";
   return `${prefix}${displayBoomCategoryName(category.name) || category.name || ""}`;
 }
 
@@ -693,8 +699,8 @@ function fillCategorySelect(selectId, includeAll = false) {
 
   for (const category of state.categories) {
     const path = pathMap.get(category.id) || category.name;
-    const sortOrder = Number(category.sort_order);
-    const prefix = Number.isFinite(sortOrder) ? `[${sortOrder}] ` : "";
+    const formatted = formatOrderNumber(category.sort_order);
+    const prefix = formatted ? `[${formatted}] ` : "";
     html += `<option value="${category.id}">${escapeHtml(prefix + path)}</option>`;
   }
 
@@ -713,8 +719,8 @@ function fillBoomCategorySelect(selectId, includeBlank = true) {
   let html = includeBlank ? '<option value="">无</option>' : "";
   for (const category of state.boomCategories) {
     const path = pathMap.get(category.id) || category.name;
-    const sortOrder = Number(category.sort_order);
-    const prefix = Number.isFinite(sortOrder) ? `[${sortOrder}] ` : "";
+    const formatted = formatOrderNumber(category.sort_order);
+    const prefix = formatted ? `[${formatted}] ` : "";
     html += `<option value="${category.id}">${escapeHtml(prefix + path)}</option>`;
   }
 
@@ -1635,7 +1641,7 @@ function renderProducts(items) {
         : '<span class="hint">无图</span>';
       return `
       <tr>
-        <td>${item.sort_order || "-"}</td>
+        <td>${formatOrderNumber(item.sort_order) || "-"}</td>
         <td>${item.code}</td>
         <td>${chineseName}</td>
         <td>${item.effect || "-"}</td>
