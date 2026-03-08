@@ -651,6 +651,25 @@ def create_app() -> Flask:
             """,
             (product_id,),
         ).fetchone()[0]
+        linked_molds = conn.execute(
+            """
+            SELECT
+                cbi.id,
+                cbi.item_name AS product_name,
+                cbi.gram_weight,
+                cbi.product_material AS material_type,
+                cbi.default_unit_cost AS material_price,
+                cbi.mold_position,
+                bc.name AS boom_category_name
+            FROM boom_base_item_products bip
+            JOIN category_boom_base_items cbi ON cbi.id = bip.base_item_id
+            LEFT JOIN boom_categories bc ON bc.id = cbi.boom_category_id
+            WHERE bip.product_id = ?
+              AND cbi.item_type = ?
+            ORDER BY cbi.item_name COLLATE NATURAL_ZH_NUM, cbi.id
+            """,
+            (product_id, BOOM_BASE_TYPE_MOLD),
+        ).fetchall()
         return jsonify(
             {
                 "product": dict(product),
@@ -658,6 +677,7 @@ def create_app() -> Flask:
                 "specs": [dict(row) for row in specs],
                 "bom_items": [dict(row) for row in bom_items],
                 "bom_total_cost": float(bom_total_cost or 0),
+                "linked_molds": [dict(row) for row in linked_molds],
             }
         )
 
@@ -1281,6 +1301,7 @@ def create_app() -> Flask:
                 cbi.remark AS description,
                 cbi.mold_position,
                 cbi.product_material,
+                cbi.gram_weight,
                 cbi.cavity_count,
                 cbi.development_date,
                 cbi.production_date,
@@ -1295,7 +1316,39 @@ def create_app() -> Flask:
             """,
             (boom_category_id,),
         ).fetchall()
-        return jsonify({"items": [dict(row) for row in rows], "category_type": category_type})
+        items = [dict(row) for row in rows]
+        if items:
+            item_ids = [int(item["id"]) for item in items]
+            placeholders = ",".join("?" for _ in item_ids)
+            link_rows = conn.execute(
+                f"""
+                SELECT
+                    bip.base_item_id,
+                    p.id AS product_id,
+                    p.code,
+                    COALESCE(NULLIF(p.chinese_name, ''), p.name, '') AS chinese_name
+                FROM boom_base_item_products bip
+                JOIN products p ON p.id = bip.product_id
+                WHERE COALESCE(p.is_deleted, 0) = 0
+                  AND bip.base_item_id IN ({placeholders})
+                ORDER BY bip.base_item_id, p.code COLLATE NATURAL_ZH_NUM, p.id
+                """,
+                item_ids,
+            ).fetchall()
+            linked_map: dict[int, list[dict[str, Any]]] = {}
+            for row in link_rows:
+                linked_map.setdefault(int(row["base_item_id"]), []).append(
+                    {
+                        "id": int(row["product_id"]),
+                        "code": row["code"],
+                        "chinese_name": row["chinese_name"],
+                    }
+                )
+            for item in items:
+                linked_products = linked_map.get(int(item["id"]), [])
+                item["linked_products"] = linked_products
+                item["linked_product_ids"] = [product["id"] for product in linked_products]
+        return jsonify({"items": items, "category_type": category_type})
 
     @app.route("/api/category-boom-base-items", methods=["POST"])
     def create_category_boom_base_item():
@@ -1334,6 +1387,11 @@ def create_app() -> Flask:
             mold_fields = normalize_boom_base_mold_fields(payload)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
+        try:
+            linked_product_ids = normalize_boom_base_linked_product_ids(payload)
+            validate_boom_base_linked_products(conn, linked_product_ids)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
         duplicate = conn.execute(
             """
@@ -1355,10 +1413,10 @@ def create_app() -> Flask:
             """
             INSERT INTO category_boom_base_items(
                 boom_category_id, item_type, item_name, item_spec, unit, default_unit_cost, remark,
-                mold_position, product_material, cavity_count, development_date, production_date, scrap_date,
+                mold_position, product_material, gram_weight, cavity_count, development_date, production_date, scrap_date,
                 sort_order, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 boom_category_id,
@@ -1370,6 +1428,7 @@ def create_app() -> Flask:
                 "" if item_type == BOOM_BASE_TYPE_MOLD else description,
                 mold_fields["mold_position"],
                 mold_fields["product_material"],
+                mold_fields["gram_weight"],
                 mold_fields["cavity_count"],
                 mold_fields["development_date"],
                 mold_fields["production_date"],
@@ -1378,6 +1437,11 @@ def create_app() -> Flask:
                 now,
                 now,
             ),
+        )
+        replace_boom_base_item_products(
+            conn,
+            int(cursor.lastrowid),
+            linked_product_ids if item_type == BOOM_BASE_TYPE_MOLD else [],
         )
         conn.commit()
         return jsonify({"id": int(cursor.lastrowid)})
@@ -1416,6 +1480,11 @@ def create_app() -> Flask:
             mold_fields = normalize_boom_base_mold_fields(payload)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
+        try:
+            linked_product_ids = normalize_boom_base_linked_product_ids(payload)
+            validate_boom_base_linked_products(conn, linked_product_ids)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
         duplicate = conn.execute(
             """
@@ -1433,7 +1502,7 @@ def create_app() -> Flask:
             """
             UPDATE category_boom_base_items
             SET item_type = ?, item_name = ?, item_spec = ?, unit = ?, default_unit_cost = ?, remark = ?,
-                mold_position = ?, product_material = ?, cavity_count = ?, development_date = ?,
+                mold_position = ?, product_material = ?, gram_weight = ?, cavity_count = ?, development_date = ?,
                 production_date = ?, scrap_date = ?, updated_at = ?
             WHERE id = ?
             """,
@@ -1446,6 +1515,7 @@ def create_app() -> Flask:
                 "" if item_type == BOOM_BASE_TYPE_MOLD else description,
                 mold_fields["mold_position"],
                 mold_fields["product_material"],
+                mold_fields["gram_weight"],
                 mold_fields["cavity_count"],
                 mold_fields["development_date"],
                 mold_fields["production_date"],
@@ -1453,6 +1523,11 @@ def create_app() -> Flask:
                 now,
                 base_item_id,
             ),
+        )
+        replace_boom_base_item_products(
+            conn,
+            base_item_id,
+            linked_product_ids if item_type == BOOM_BASE_TYPE_MOLD else [],
         )
         conn.commit()
         return jsonify({"ok": True})
@@ -1467,6 +1542,7 @@ def create_app() -> Flask:
         if existing is None:
             return jsonify({"error": "BOOM基础项不存在"}), 404
 
+        conn.execute("DELETE FROM boom_base_item_products WHERE base_item_id = ?", (base_item_id,))
         conn.execute("DELETE FROM category_boom_base_items WHERE id = ?", (base_item_id,))
         conn.commit()
         return jsonify({"ok": True})
@@ -1629,6 +1705,7 @@ def init_db() -> None:
             remark TEXT NOT NULL DEFAULT '',
             mold_position TEXT NOT NULL DEFAULT '',
             product_material TEXT NOT NULL DEFAULT '',
+            gram_weight TEXT NOT NULL DEFAULT '',
             cavity_count TEXT NOT NULL DEFAULT '',
             development_date TEXT NOT NULL DEFAULT '',
             production_date TEXT NOT NULL DEFAULT '',
@@ -1637,6 +1714,16 @@ def init_db() -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS boom_base_item_products (
+            base_item_id INTEGER NOT NULL REFERENCES category_boom_base_items(id) ON DELETE CASCADE,
+            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(base_item_id, product_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_boom_base_item_products_product
+        ON boom_base_item_products(product_id, base_item_id);
 
         CREATE TABLE IF NOT EXISTS product_bom_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1664,6 +1751,7 @@ def init_db() -> None:
     ensure_boom_category_columns(conn)
     ensure_product_bom_columns(conn)
     ensure_boom_base_columns(conn)
+    ensure_boom_base_product_relation_table(conn)
     backfill_config_units_from_boom_base(conn)
     normalize_categories(conn)
     seed_boom_categories_from_product_categories(conn)
@@ -1778,6 +1866,7 @@ def migrate_boom_tables_if_needed(conn: sqlite3.Connection) -> None:
             remark TEXT NOT NULL DEFAULT '',
             mold_position TEXT NOT NULL DEFAULT '',
             product_material TEXT NOT NULL DEFAULT '',
+            gram_weight TEXT NOT NULL DEFAULT '',
             cavity_count TEXT NOT NULL DEFAULT '',
             development_date TEXT NOT NULL DEFAULT '',
             production_date TEXT NOT NULL DEFAULT '',
@@ -1807,7 +1896,7 @@ def migrate_boom_tables_if_needed(conn: sqlite3.Connection) -> None:
         f"""
         INSERT INTO category_boom_base_items(
             id, boom_category_id, item_type, item_name, item_spec, unit, default_unit_cost, remark,
-            mold_position, product_material, cavity_count, development_date, production_date, scrap_date,
+            mold_position, product_material, gram_weight, cavity_count, development_date, production_date, scrap_date,
             sort_order, created_at, updated_at
         )
         SELECT
@@ -1819,6 +1908,7 @@ def migrate_boom_tables_if_needed(conn: sqlite3.Connection) -> None:
             unit,
             default_unit_cost,
             remark,
+            '',
             '',
             '',
             '',
@@ -1944,6 +2034,7 @@ def normalize_boom_base_mold_fields(payload: dict[str, Any]) -> dict[str, str]:
     return {
         "mold_position": str(payload.get("mold_position") or "").strip(),
         "product_material": str(payload.get("product_material") or "").strip(),
+        "gram_weight": str(payload.get("gram_weight") or "").strip(),
         "cavity_count": str(payload.get("cavity_count") or "").strip(),
         "development_date": normalize_optional_iso_date(
             payload.get("development_date"), "开发日期"
@@ -1951,6 +2042,66 @@ def normalize_boom_base_mold_fields(payload: dict[str, Any]) -> dict[str, str]:
         "production_date": normalize_optional_iso_date(payload.get("production_date"), "量产日期"),
         "scrap_date": normalize_optional_iso_date(payload.get("scrap_date"), "报废日期"),
     }
+
+
+def normalize_boom_base_linked_product_ids(payload: dict[str, Any]) -> list[int]:
+    raw_ids = payload.get("linked_product_ids")
+    if raw_ids in (None, ""):
+        return []
+    if not isinstance(raw_ids, list):
+        raise ValueError("所属产品格式不正确")
+
+    result: list[int] = []
+    seen: set[int] = set()
+    for raw_id in raw_ids:
+        try:
+            product_id = int(raw_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("所属产品格式不正确") from exc
+        if product_id <= 0 or product_id in seen:
+            continue
+        seen.add(product_id)
+        result.append(product_id)
+    return result
+
+
+def validate_boom_base_linked_products(
+    conn: sqlite3.Connection, product_ids: list[int]
+) -> list[sqlite3.Row]:
+    if not product_ids:
+        return []
+
+    placeholders = ",".join("?" for _ in product_ids)
+    rows = conn.execute(
+        f"""
+        SELECT id, code, COALESCE(NULLIF(chinese_name, ''), name, '') AS chinese_name, category_id
+        FROM products
+        WHERE COALESCE(is_deleted, 0) = 0
+          AND id IN ({placeholders})
+        """,
+        product_ids,
+    ).fetchall()
+    if len(rows) != len(set(product_ids)):
+        raise ValueError("存在无效的所属产品")
+    return rows
+
+
+def replace_boom_base_item_products(
+    conn: sqlite3.Connection, base_item_id: int, product_ids: list[int]
+) -> None:
+    conn.execute("DELETE FROM boom_base_item_products WHERE base_item_id = ?", (base_item_id,))
+    if not product_ids:
+        return
+
+    now = utc_now()
+    for product_id in product_ids:
+        conn.execute(
+            """
+            INSERT INTO boom_base_item_products(base_item_id, product_id, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (base_item_id, product_id, now),
+        )
 
 
 def sync_boom_base_item_types(conn: sqlite3.Connection) -> None:
@@ -2033,6 +2184,7 @@ def ensure_boom_base_columns(conn: sqlite3.Connection) -> None:
         "item_type": f"TEXT NOT NULL DEFAULT '{BOOM_BASE_TYPE_MATERIAL}'",
         "mold_position": "TEXT NOT NULL DEFAULT ''",
         "product_material": "TEXT NOT NULL DEFAULT ''",
+        "gram_weight": "TEXT NOT NULL DEFAULT ''",
         "cavity_count": "TEXT NOT NULL DEFAULT ''",
         "development_date": "TEXT NOT NULL DEFAULT ''",
         "production_date": "TEXT NOT NULL DEFAULT ''",
@@ -2059,6 +2211,25 @@ def ensure_boom_base_columns(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_category_boom_base_items_boom_category_order
         ON category_boom_base_items(boom_category_id, sort_order, id)
+        """
+    )
+
+
+def ensure_boom_base_product_relation_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS boom_base_item_products (
+            base_item_id INTEGER NOT NULL REFERENCES category_boom_base_items(id) ON DELETE CASCADE,
+            product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(base_item_id, product_id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_boom_base_item_products_product
+        ON boom_base_item_products(product_id, base_item_id)
         """
     )
 

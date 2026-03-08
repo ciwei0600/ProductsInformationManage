@@ -33,6 +33,9 @@ const state = {
   packagingExpandedCategoryIds: new Set(),
   boomBaseItems: [],
   currentBoomBaseCategoryType: "material",
+  currentBoomBaseLinkedProductIds: [],
+  boomBaseLinkedProductDraftIds: [],
+  boomBaseProductPickerExpandedCategoryIds: new Set(),
   quoteLines: [],
   currentProductSpecs: [],
   currentProductBomItems: [],
@@ -372,7 +375,7 @@ function isMoldBoomBaseType(type) {
 }
 
 function getBoomBaseTableColspan(type = state.currentBoomBaseCategoryType) {
-  return isMoldBoomBaseType(type) ? 9 : 6;
+  return isMoldBoomBaseType(type) ? 10 : 6;
 }
 
 function renderBoomBaseTableHead(type = state.currentBoomBaseCategoryType) {
@@ -385,6 +388,7 @@ function renderBoomBaseTableHead(type = state.currentBoomBaseCategoryType) {
         <th>产品名称</th>
         <th>模具位置</th>
         <th>产品原料</th>
+        <th>克数</th>
         <th>出数</th>
         <th>价格</th>
         <th>开发日期</th>
@@ -432,13 +436,16 @@ function renderBoomBaseEditorByType(type = state.currentBoomBaseCategoryType) {
   const moldRowIds = [
     "boomBaseMoldPositionRow",
     "boomBaseProductMaterialRow",
+    "boomBaseGramWeightRow",
     "boomBaseCavityCountRow",
     "boomBaseDevelopmentDateRow",
     "boomBaseProductionDateRow",
     "boomBaseScrapDateRow",
   ];
+  const linkedProductsRow = el("boomBaseLinkedProductsRow");
   if (unitRow) unitRow.style.display = isMold ? "none" : "";
   if (descriptionRow) descriptionRow.style.display = isMold ? "none" : "";
+  if (linkedProductsRow) linkedProductsRow.style.display = isMold ? "" : "none";
   for (const rowId of moldRowIds) {
     const row = el(rowId);
     if (row) {
@@ -446,7 +453,201 @@ function renderBoomBaseEditorByType(type = state.currentBoomBaseCategoryType) {
     }
   }
 
+  renderBoomBaseLinkedProductsHint();
   renderBoomBaseTableHead(finalType);
+}
+
+function boomBaseLinkedProductLabel(product) {
+  if (!product) return "未知产品";
+  return `${product.code || "-"} | ${product.chinese_name || product.name || "-"}`;
+}
+
+function renderBoomBaseLinkedProductsHint() {
+  const hint = el("boomBaseLinkedProductsHint");
+  if (!hint) return;
+  if (!isMoldBoomBaseType(state.currentBoomBaseCategoryType)) {
+    hint.textContent = "";
+    return;
+  }
+
+  const linkedProducts = state.currentBoomBaseLinkedProductIds
+    .map((productId) => getMaterialProductById(productId))
+    .filter(Boolean);
+  if (!linkedProducts.length) {
+    hint.textContent = "未选择所属产品";
+    return;
+  }
+  hint.textContent = `已选择 ${linkedProducts.length} 个产品：${linkedProducts
+    .map((product) => boomBaseLinkedProductLabel(product))
+    .join("；")}`;
+}
+
+function renderBoomBaseLinkedProductsSelectedHint() {
+  const hint = el("boomBaseLinkedProductsSelectedHint");
+  if (!hint) return;
+  const linkedProducts = state.boomBaseLinkedProductDraftIds
+    .map((productId) => getMaterialProductById(productId))
+    .filter(Boolean);
+  if (!linkedProducts.length) {
+    hint.textContent = "当前未选择所属产品";
+    return;
+  }
+  hint.textContent = `当前已选 ${linkedProducts.length} 个产品`;
+}
+
+function expandBoomBaseLinkedProductAncestors(productIds) {
+  const parentMap = new Map();
+  for (const category of state.categories) {
+    parentMap.set(category.id, category.parent_id ?? null);
+  }
+  for (const productId of productIds) {
+    const product = getMaterialProductById(productId);
+    let currentId = product?.category_id == null ? null : Number(product.category_id);
+    while (currentId) {
+      state.boomBaseProductPickerExpandedCategoryIds.add(currentId);
+      currentId = parentMap.get(currentId) ?? null;
+    }
+  }
+}
+
+function renderBoomBaseLinkedProductsTree() {
+  const container = el("boomBaseLinkedProductsTree");
+  if (!container) return;
+
+  const categoryProducts = new Map();
+  for (const product of state.materialProducts) {
+    const categoryId = product.category_id == null ? null : Number(product.category_id);
+    if (!categoryProducts.has(categoryId)) {
+      categoryProducts.set(categoryId, []);
+    }
+    categoryProducts.get(categoryId).push(product);
+  }
+
+  function renderNodes(nodes, depth = 0) {
+    let html = "";
+    for (const node of nodes) {
+      const products = categoryProducts.get(node.id) || [];
+      const hasChildren = Boolean(node.children && node.children.length > 0);
+      const hasContent = hasChildren || products.length > 0;
+      const expanded = state.boomBaseProductPickerExpandedCategoryIds.has(node.id);
+      const sign = hasContent ? (expanded ? "-" : "+") : "·";
+      const signClass = hasContent ? "tree-sign" : "tree-sign empty";
+      const padding = 10 + depth * 14;
+      html += `<li>
+        <div
+          class="tree-item"
+          data-boom-link-category-id="${node.id}"
+          data-expandable="${hasContent ? "1" : "0"}"
+          style="padding-left:${padding}px"
+        >
+          <span class="${signClass}">${sign}</span>
+          <span>${escapeHtml(node.name)}</span>
+        </div>
+      `;
+      if (expanded && hasChildren) {
+        html += `<ul class="tree">${renderNodes(node.children, depth + 1)}</ul>`;
+      }
+      if (expanded && products.length > 0) {
+        html += '<ul class="tree-products">';
+        html += products
+          .map((product) => {
+            const checked = state.boomBaseLinkedProductDraftIds.includes(product.id) ? "checked" : "";
+            return `
+              <li class="tree-product-item">
+                <label class="checkbox">
+                  <input type="checkbox" data-boom-link-product-id="${product.id}" ${checked} />
+                  ${escapeHtml(boomBaseLinkedProductLabel(product))}
+                </label>
+              </li>
+            `;
+          })
+          .join("");
+        html += "</ul>";
+      }
+      html += "</li>";
+    }
+    return html;
+  }
+
+  let html = `<ul class="tree">${renderNodes(state.categoryTree)}</ul>`;
+  const uncategorizedProducts = categoryProducts.get(null) || [];
+  if (uncategorizedProducts.length > 0) {
+    html += `
+      <div class="hint mt12">未分类产品</div>
+      <ul class="tree-products">
+        ${uncategorizedProducts
+          .map((product) => {
+            const checked = state.boomBaseLinkedProductDraftIds.includes(product.id) ? "checked" : "";
+            return `
+              <li class="tree-product-item">
+                <label class="checkbox">
+                  <input type="checkbox" data-boom-link-product-id="${product.id}" ${checked} />
+                  ${escapeHtml(boomBaseLinkedProductLabel(product))}
+                </label>
+              </li>
+            `;
+          })
+          .join("")}
+      </ul>
+    `;
+  }
+  container.innerHTML = html;
+  container.querySelectorAll("[data-boom-link-category-id]").forEach((item) => {
+    item.addEventListener("click", () => {
+      const categoryId = Number(item.dataset.boomLinkCategoryId);
+      if (!categoryId || item.dataset.expandable !== "1") return;
+      if (state.boomBaseProductPickerExpandedCategoryIds.has(categoryId)) {
+        state.boomBaseProductPickerExpandedCategoryIds.delete(categoryId);
+      } else {
+        state.boomBaseProductPickerExpandedCategoryIds.add(categoryId);
+      }
+      renderBoomBaseLinkedProductsTree();
+    });
+  });
+
+  container.querySelectorAll("[data-boom-link-product-id]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const productId = Number(input.dataset.boomLinkProductId);
+      if (!productId) return;
+      if (input.checked) {
+        if (!state.boomBaseLinkedProductDraftIds.includes(productId)) {
+          state.boomBaseLinkedProductDraftIds = [...state.boomBaseLinkedProductDraftIds, productId];
+        }
+      } else {
+        state.boomBaseLinkedProductDraftIds = state.boomBaseLinkedProductDraftIds.filter(
+          (id) => id !== productId
+        );
+      }
+      renderBoomBaseLinkedProductsSelectedHint();
+    });
+  });
+
+  renderBoomBaseLinkedProductsSelectedHint();
+}
+
+function openBoomBaseLinkedProductsModal() {
+  if (!isMoldBoomBaseType(state.currentBoomBaseCategoryType)) {
+    toast("只有模具类型支持选择所属产品");
+    return;
+  }
+  state.boomBaseLinkedProductDraftIds = [...state.currentBoomBaseLinkedProductIds];
+  state.boomBaseProductPickerExpandedCategoryIds = new Set();
+  for (const node of state.categoryTree) {
+    state.boomBaseProductPickerExpandedCategoryIds.add(node.id);
+  }
+  expandBoomBaseLinkedProductAncestors(state.boomBaseLinkedProductDraftIds);
+  renderBoomBaseLinkedProductsTree();
+  el("boomBaseLinkedProductsModal").classList.add("show");
+}
+
+function closeBoomBaseLinkedProductsModal() {
+  el("boomBaseLinkedProductsModal").classList.remove("show");
+}
+
+function confirmBoomBaseLinkedProductsModal() {
+  state.currentBoomBaseLinkedProductIds = [...state.boomBaseLinkedProductDraftIds];
+  renderBoomBaseLinkedProductsHint();
+  closeBoomBaseLinkedProductsModal();
 }
 
 function getBoomCategoryAddParentId() {
@@ -1829,6 +2030,7 @@ function resetProductForm() {
   renderProductBoomBaseSelect([], null, "请先保存产品后选择BOOM基础项");
   resetBomEditor();
   renderBomItems([], 0);
+  renderLinkedMolds([]);
   setBomEditorEnabled(false);
   setPurchasedProductMode(false);
 }
@@ -2330,6 +2532,7 @@ async function reorderBoomCategory(draggedId, targetId, position) {
 
 function resetBoomBaseForm() {
   state.editingBoomBaseItemId = null;
+  state.currentBoomBaseLinkedProductIds = [];
   el("boomBaseItemId").value = "";
   el("boomBaseItemName").value = "";
   renderBoomUnitSelect("");
@@ -2337,6 +2540,7 @@ function resetBoomBaseForm() {
   el("boomBaseDescription").value = "";
   el("boomBaseMoldPosition").value = "";
   el("boomBaseProductMaterial").value = "";
+  el("boomBaseGramWeight").value = "";
   el("boomBaseCavityCount").value = "";
   el("boomBaseDevelopmentDate").value = "";
   el("boomBaseProductionDate").value = "";
@@ -2364,6 +2568,7 @@ function renderBoomBaseItems(items) {
         <td>${escapeHtml(item.product_name || item.item_name || "-")}</td>
         <td>${escapeHtml(item.mold_position || "-")}</td>
         <td>${escapeHtml(item.product_material || "-")}</td>
+        <td>${escapeHtml(item.gram_weight || "-")}</td>
         <td>${escapeHtml(item.cavity_count || "-")}</td>
         <td>¥${toMoney(Number(item.price || item.default_unit_cost || 0))}</td>
         <td>${escapeHtml(item.development_date || "-")}</td>
@@ -2416,10 +2621,13 @@ function renderBoomBaseItems(items) {
       el("boomBaseDescription").value = target.description || "";
       el("boomBaseMoldPosition").value = target.mold_position || "";
       el("boomBaseProductMaterial").value = target.product_material || "";
+      el("boomBaseGramWeight").value = target.gram_weight || "";
       el("boomBaseCavityCount").value = target.cavity_count || "";
       el("boomBaseDevelopmentDate").value = target.development_date || "";
       el("boomBaseProductionDate").value = target.production_date || "";
       el("boomBaseScrapDate").value = target.scrap_date || "";
+      state.currentBoomBaseLinkedProductIds = [...(target.linked_product_ids || [])];
+      renderBoomBaseLinkedProductsHint();
       el("saveBoomBaseItemBtn").textContent = "保存修改";
       el("cancelBoomBaseEditBtn").style.display = "";
     });
@@ -2438,6 +2646,7 @@ async function loadBoomBaseItems() {
   if (!boomCategoryId) {
     state.boomBaseItems = [];
     state.currentBoomBaseCategoryType = "material";
+    state.currentBoomBaseLinkedProductIds = [];
     renderBoomBaseEditorByType(state.currentBoomBaseCategoryType);
     el("boomBaseItemsBody").innerHTML =
       `<tr><td colspan="${getBoomBaseTableColspan()}" class="hint">请选择BOOM目录后维护BOOM基础信息</td></tr>`;
@@ -2472,10 +2681,12 @@ async function saveBoomBaseItem() {
     description: el("boomBaseDescription").value.trim(),
     mold_position: el("boomBaseMoldPosition").value.trim(),
     product_material: el("boomBaseProductMaterial").value.trim(),
+    gram_weight: el("boomBaseGramWeight").value.trim(),
     cavity_count: el("boomBaseCavityCount").value.trim(),
     development_date: el("boomBaseDevelopmentDate").value,
     production_date: el("boomBaseProductionDate").value,
     scrap_date: el("boomBaseScrapDate").value,
+    linked_product_ids: [...state.currentBoomBaseLinkedProductIds],
   };
 
   if (state.editingBoomBaseItemId) {
@@ -2499,10 +2710,7 @@ async function saveBoomBaseItem() {
 
   const productId = Number(el("productId").value);
   if (productId) {
-    const productBoomCategoryId = Number(el("productBoomCategory").value);
-    if (productBoomCategoryId && productBoomCategoryId === boomCategoryId) {
-      await loadProductBoomBaseItems(productBoomCategoryId);
-    }
+    await loadProductDetail(productId);
   }
 }
 
@@ -2519,11 +2727,31 @@ async function deleteBoomBaseItem(baseItemId) {
 
   const productId = Number(el("productId").value);
   if (productId) {
-    const productBoomCategoryId = Number(el("productBoomCategory").value);
-    if (productBoomCategoryId) {
-      await loadProductBoomBaseItems(productBoomCategoryId);
-    }
+    await loadProductDetail(productId);
   }
+}
+
+function renderLinkedMolds(items) {
+  const body = el("linkedMoldsBody");
+  if (!body) return;
+
+  if (!items.length) {
+    body.innerHTML = '<tr><td colspan="4" class="hint">暂无关联模具</td></tr>';
+    return;
+  }
+
+  body.innerHTML = items
+    .map(
+      (item) => `
+      <tr>
+        <td>${escapeHtml(item.product_name || "-")}</td>
+        <td>${escapeHtml(item.gram_weight || "-")}</td>
+        <td>${escapeHtml(item.material_type || "-")}</td>
+        <td>¥${toMoney(Number(item.material_price || 0))}</td>
+      </tr>
+    `
+    )
+    .join("");
 }
 
 function syncMaterialCostUnitFromSelectedProduct() {
@@ -2780,6 +3008,7 @@ async function loadProductDetail(id) {
   renderProductImages(data.images || []);
   resetProductSpecEditor();
   renderProductSpecs(data.specs || []);
+  renderLinkedMolds(data.linked_molds || []);
   setProductSpecEditorEnabled(true);
   setPurchasedProductMode(Boolean(Number(product.is_purchased || 0)));
   resetBomEditor();
@@ -3018,6 +3247,14 @@ function bindEvents() {
   el("productCategoryMoveModal").addEventListener("click", (event) => {
     if (event.target === el("productCategoryMoveModal")) {
       closeProductCategoryMoveModal();
+    }
+  });
+  el("selectBoomBaseLinkedProductsBtn").addEventListener("click", openBoomBaseLinkedProductsModal);
+  el("boomBaseLinkedProductsConfirmBtn").addEventListener("click", confirmBoomBaseLinkedProductsModal);
+  el("boomBaseLinkedProductsCancelBtn").addEventListener("click", closeBoomBaseLinkedProductsModal);
+  el("boomBaseLinkedProductsModal").addEventListener("click", (event) => {
+    if (event.target === el("boomBaseLinkedProductsModal")) {
+      closeBoomBaseLinkedProductsModal();
     }
   });
   el("boomCategoryActionInput").addEventListener("keydown", (event) => {

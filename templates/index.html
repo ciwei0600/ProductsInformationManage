@@ -189,6 +189,25 @@
               </section>
 
               <section class="detail-section">
+                <h3>关联模具</h3>
+                <div class="table-wrap mt12">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>产品名称</th>
+                        <th>克数</th>
+                        <th>原料类型</th>
+                        <th>原料价格</th>
+                      </tr>
+                    </thead>
+                    <tbody id="linkedMoldsBody">
+                      <tr><td colspan="4" class="hint">暂无关联模具</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="detail-section">
                 <h3>规格</h3>
                 <div id="productSpecEditorHint" class="hint">请先保存产品后，再维护规格。</div>
                 <div id="productSpecEditor" class="bom-editor">
@@ -343,6 +362,10 @@
                 <label for="boomBaseProductMaterial">产品原料</label>
                 <input id="boomBaseProductMaterial" type="text" placeholder="如 PP / ABS" />
               </div>
+              <div class="row" id="boomBaseGramWeightRow" style="display: none">
+                <label for="boomBaseGramWeight">克数</label>
+                <input id="boomBaseGramWeight" type="text" placeholder="如 18g / 32g" />
+              </div>
               <div class="row" id="boomBaseCavityCountRow" style="display: none">
                 <label for="boomBaseCavityCount">出数</label>
                 <input id="boomBaseCavityCount" type="text" placeholder="如 2 / 4" />
@@ -358,6 +381,15 @@
               <div class="row" id="boomBaseScrapDateRow" style="display: none">
                 <label for="boomBaseScrapDate">报废日期</label>
                 <input id="boomBaseScrapDate" type="date" />
+              </div>
+              <div class="row" id="boomBaseLinkedProductsRow" style="display: none">
+                <label>所属产品</label>
+                <div class="field-col">
+                  <div id="boomBaseLinkedProductsHint" class="hint">未选择所属产品</div>
+                  <div class="button-row mt12">
+                    <button id="selectBoomBaseLinkedProductsBtn" type="button" class="ghost">选择所属产品</button>
+                  </div>
+                </div>
               </div>
               <div class="button-row">
                 <button id="saveBoomBaseItemBtn" type="button">新增项目</button>
@@ -511,8 +543,8 @@
     <!-- 发布新版本时，必须同步修改这里的版本号和更新时间。 -->
     <footer class="app-footer">
       <div class="app-footer-meta">
-        <span>版本：v2026.03.07.2343</span>
-        <span>更新时间：2026-03-07 23:43 CST</span>
+        <span>版本：v2026.03.08.0803</span>
+        <span>更新时间：2026-03-08 08:03 CST</span>
       </div>
     </footer>
 
@@ -577,6 +609,19 @@
         <div class="button-row mt12">
           <button id="productCategoryMoveConfirmBtn" type="button">确认</button>
           <button id="productCategoryMoveCancelBtn" class="ghost" type="button">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="boomBaseLinkedProductsModal" class="category-action-modal">
+      <div class="category-action-dialog">
+        <h3>选择所属产品</h3>
+        <div class="hint">一副模具可关联多个产品，一个产品也可关联多副模具。</div>
+        <div id="boomBaseLinkedProductsSelectedHint" class="hint mt12"></div>
+        <div id="boomBaseLinkedProductsTree" class="product-category-move-tree mt12"></div>
+        <div class="button-row mt12">
+          <button id="boomBaseLinkedProductsConfirmBtn" type="button">确认</button>
+          <button id="boomBaseLinkedProductsCancelBtn" class="ghost" type="button">取消</button>
         </div>
       </div>
     </div>
