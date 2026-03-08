@@ -1468,13 +1468,16 @@ def create_app() -> Flask:
                 now,
             ),
         )
+        created_base_item_id = int(cursor.lastrowid)
         replace_boom_base_item_products(
             conn,
-            int(cursor.lastrowid),
+            created_base_item_id,
             linked_product_ids if item_type == BOOM_BASE_TYPE_MOLD else [],
         )
+        if item_type == BOOM_BASE_TYPE_MOLD and linked_product_ids:
+            create_product_bom_items_for_mold_links(conn, created_base_item_id, linked_product_ids)
         conn.commit()
-        return jsonify({"id": int(cursor.lastrowid)})
+        return jsonify({"id": created_base_item_id})
 
     @app.route("/api/category-boom-base-items/<int:base_item_id>", methods=["PUT"])
     def update_category_boom_base_item(base_item_id: int):
@@ -1527,6 +1530,11 @@ def create_app() -> Flask:
         if duplicate is not None:
             return jsonify({"error": "当前BOOM目录已存在同名基础项"}), 400
 
+        previous_linked_product_ids = (
+            get_boom_base_item_product_ids(conn, base_item_id)
+            if item_type == BOOM_BASE_TYPE_MOLD
+            else []
+        )
         now = utc_now()
         conn.execute(
             """
@@ -1559,6 +1567,17 @@ def create_app() -> Flask:
             base_item_id,
             linked_product_ids if item_type == BOOM_BASE_TYPE_MOLD else [],
         )
+        if item_type == BOOM_BASE_TYPE_MOLD:
+            previous_linked_product_id_set = set(previous_linked_product_ids)
+            newly_linked_product_ids = [
+                product_id
+                for product_id in linked_product_ids
+                if product_id not in previous_linked_product_id_set
+            ]
+            if newly_linked_product_ids:
+                create_product_bom_items_for_mold_links(
+                    conn, base_item_id, newly_linked_product_ids
+                )
         conn.commit()
         return jsonify({"ok": True})
 
@@ -2151,6 +2170,92 @@ def replace_boom_base_item_products(
             """,
             (base_item_id, product_id, now),
         )
+
+
+def get_boom_base_item_product_ids(conn: sqlite3.Connection, base_item_id: int) -> list[int]:
+    rows = conn.execute(
+        """
+        SELECT product_id
+        FROM boom_base_item_products
+        WHERE base_item_id = ?
+        ORDER BY product_id
+        """,
+        (base_item_id,),
+    ).fetchall()
+    return [int(row[0]) for row in rows]
+
+
+def create_product_bom_item_from_base_item(
+    conn: sqlite3.Connection, product_id: int, base_item_id: int
+) -> None:
+    existing = conn.execute(
+        """
+        SELECT id
+        FROM product_bom_items
+        WHERE product_id = ? AND base_item_id = ?
+        """,
+        (product_id, base_item_id),
+    ).fetchone()
+    if existing is not None:
+        return
+
+    product = conn.execute(
+        """
+        SELECT id, is_purchased
+        FROM products
+        WHERE id = ? AND COALESCE(is_deleted, 0) = 0
+        """,
+        (product_id,),
+    ).fetchone()
+    if product is None or int(product["is_purchased"] or 0) == 1:
+        return
+
+    base_item = conn.execute(
+        """
+        SELECT id, item_name, item_spec, unit, default_unit_cost
+        FROM category_boom_base_items
+        WHERE id = ?
+        """,
+        (base_item_id,),
+    ).fetchone()
+    if base_item is None:
+        return
+
+    sort_order = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM product_bom_items WHERE product_id = ?",
+        (product_id,),
+    ).fetchone()[0]
+    now = utc_now()
+    conn.execute(
+        """
+        INSERT INTO product_bom_items(
+            product_id, base_item_id, item_name, item_spec, unit, quantity, unit_cost, remark, sort_order,
+            created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            product_id,
+            base_item_id,
+            (base_item["item_name"] or "").strip(),
+            (base_item["item_spec"] or "").strip(),
+            (base_item["unit"] or "").strip(),
+            1,
+            float(base_item["default_unit_cost"] or 0),
+            "",
+            int(sort_order),
+            now,
+            now,
+        ),
+    )
+    conn.execute("UPDATE products SET updated_at = ? WHERE id = ?", (now, product_id))
+
+
+def create_product_bom_items_for_mold_links(
+    conn: sqlite3.Connection, base_item_id: int, product_ids: list[int]
+) -> None:
+    for product_id in product_ids:
+        create_product_bom_item_from_base_item(conn, product_id, base_item_id)
 
 
 def sync_boom_base_item_types(conn: sqlite3.Connection) -> None:
