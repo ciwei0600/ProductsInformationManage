@@ -3272,7 +3272,6 @@ async function saveProduct() {
   const productId = el("productId").value;
   const isPurchased = el("productIsPurchased").checked;
   const payload = {
-    code: el("productCode").value.trim(),
     chinese_name: el("productChineseName").value.trim(),
     is_purchased: isPurchased,
     purchase_price: el("productPurchasePrice").value.trim() || "0",
